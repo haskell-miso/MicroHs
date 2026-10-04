@@ -154,6 +154,14 @@ EM_JS(void, mhs_js_init, (void), {
       };
       Promise.resolve(p).then(function(v) { settle(0, v); }, function(e) { settle(1, e); });
     },
+    /* Evaluate the code of a snippet.  This is a direct eval, so the code sees what is
+     * defined in the generated JavaScript file, e.g., by the embedded JavaScript files
+     * (new Function would only see the global scope).
+     * The code can also use Module and mhsjs; mhsjs is bound inside the evaluated
+     * text, since the JavaScript optimizer removes a variable it sees no use of. */
+    evalCode: function(mhs_code__) {
+      return eval("(function(mhsjs){return (" + mhs_code__ + ")})")(M);
+    },
     compile: function(src, n, isAsync) {
       var params = [];
       for (var i = 1; i <= n; i++) params.push("$" + i);
@@ -161,14 +169,17 @@ EM_JS(void, mhs_js_init, (void), {
       var forms = [binder + " => (" + src + "\n)", binder + " => {" + src + "\n}"];
       for (var j = 0; j < forms.length; j++) {
         try {
-          return new Function("Module", "mhsjs", "return " + forms[j] + ";")(Module, M);
+          return M.evalCode(forms[j]);
         } catch (e) {
           if (!(e instanceof SyntaxError)) throw e;
         }
       }
       throw new Error("mhs: cannot compile JavaScript FFI code: " + src);
     },
-    /* Call the (cached) function for the snippet at address srcp with the given arguments. */
+    /* Call the (cached) function for the snippet at address srcp with the given arguments.
+     * (The generated code passes a further argument, a function that is never called:
+     * it mentions the identifiers of the snippet, so that the JavaScript optimizer
+     * keeps what the snippet uses.) */
     call: function(srcp, n, args) {
       var f = M.fns.get(srcp);
       if (f === undefined) {

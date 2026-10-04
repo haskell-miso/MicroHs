@@ -173,6 +173,8 @@ exception handling (browsers since 2022) `-Oz` is as fast as `-O3` and about 12%
 JavaScript files can be embedded in the generated output by giving `FILE.js` on the command line (e.g., a JavaScript runtime
 library used via the FFI).  A target supports this if it has a `js` key in `mhs.conf` giving the
 C compiler option to use (`js = "--pre-js"` for emscripten); for other targets the files are ignored.
+The embedded files go through the JavaScript optimizer of emscripten, which removes definitions that are not used.
+A definition is used when its name occurs in the code of a `foreign import javascript` (or in JavaScript code that is used).
 Installed packages can also carry JavaScript files, in a `jsbits` directory next to the package
 (mcabal puts the `js-sources` of a package there), these are embedded in the same way.
 
