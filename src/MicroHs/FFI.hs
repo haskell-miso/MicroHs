@@ -220,10 +220,17 @@ mkHdr (ImpJS sf s, f, ty, _) =
           KBool  -> "!!" ++ argName i
           _      -> argName i
       jsargs = intercalate ", " (zipWith jsArgConv as ixs)
-      body = "Module.mhsjs.call(" ++ srcName ++ ", " ++ show n ++ ", [" ++ jsargs ++ "])"
+      -- The code is compiled at run time, so the JavaScript optimizer does not see what
+      -- it uses, and would remove, e.g., a function in an embedded JavaScript file that is
+      -- only used by this code.  So pass a function (it is never called) that mentions
+      -- the identifiers of the code.
+      uses = case jsIdents s of
+               [] -> ""
+               is -> ", () => [" ++ intercalate ", " is ++ "]"
+      body = "Module.mhsjs.call(" ++ srcName ++ ", " ++ show n ++ ", [" ++ jsargs ++ "]" ++ uses ++ ")"
       -- The Promise of the async function; an exception in the argument conversion
       -- (e.g. a freed JSVal) becomes a rejected Promise, i.e. a JSException.
-      promiseBody = "try { return Module.mhsjs.newJSVal(Module.mhsjs.callAsync(" ++ srcName ++ ", " ++ show n ++ ", [" ++ jsargs ++ "])) }" ++
+      promiseBody = "try { return Module.mhsjs.newJSVal(Module.mhsjs.callAsync(" ++ srcName ++ ", " ++ show n ++ ", [" ++ jsargs ++ "]" ++ uses ++ ")) }" ++
                     " catch (e) { return Module.mhsjs.newJSVal(Promise.reject(e)) }"
       -- JavaScript code for the result, and the C type of the result
       (jsres0, ctype, asmm) =
@@ -258,6 +265,35 @@ mkHdr (ImpJS sf s, f, ty, _) =
       else
         mkMhsFun f (fbody asmCall)
 mkHdr _ = undefined
+
+-- The identifiers in JavaScript code that can refer to something defined outside it.
+-- It is an approximation from above: words in strings and comments are included.
+-- Property names (after a '.'), reserved words, and the parameters ($1, ...) are not.
+jsIdents :: String -> [String]
+jsIdents = nub . filter ok . go False
+  where
+    go _ [] = []
+    go dot acs@(c:cs)
+      | isIdStart c = case span isIdChar acs of
+                        (w, r) -> if dot then go False r else w : go False r
+      | isDigit c   = go False (dropWhile isIdChar cs)     -- a number, e.g., 0xff or 1e5
+      | c == '.'    = case span (== '.') cs of
+                        ([], r) -> go True r
+                        (_, r)  -> go False r              -- spread, ...x
+      | isSpace c   = go dot cs
+      | otherwise   = go False cs
+    isIdStart c = isAscii c && (isAlpha c || c == '_' || c == '$')
+    isIdChar c = isAscii c && (isAlphaNum c || c == '_' || c == '$')
+    ok w = w `notElem` jsReserved && not (isParam w)
+    isParam ('$' : ds) = all isDigit ds
+    isParam _ = False
+    jsReserved =
+      ["break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete",
+       "do", "else", "enum", "export", "extends", "false", "finally", "for", "function", "if",
+       "implements", "import", "in", "instanceof", "interface", "let", "new", "null", "package",
+       "private", "protected", "public", "return", "static", "super", "switch", "this", "throw",
+       "true", "try", "typeof", "var", "void", "while", "with", "yield", "await", "async", "of",
+       "get", "set", "arguments", "eval", "Module", "mhsjs"]
 
 arity :: EType -> Int
 arity = length . fst . getArrows . dropForallContext
