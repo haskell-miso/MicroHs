@@ -30,7 +30,9 @@ int mhs_main(int argc, char **argv);
  * Run the combinator program in comb[0..len-1].
  * argv[0] is the program name, the remaining arguments are for the program
  * (with +RTS ... -RTS handled as usual).
- * Does not return; exits with the program's exit code.
+ * Exits with the program's exit code.  Under emscripten it returns instead
+ * when the program is still running (blocked threads, or JavaScript callbacks
+ * that keep it alive), see mhs_main().
  */
 #if defined(__EMSCRIPTEN__)
 EMSCRIPTEN_KEEPALIVE
