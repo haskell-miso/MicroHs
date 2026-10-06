@@ -36,7 +36,9 @@ callback: unblocked
 main: got callback 17
 Uncaught exception in a JavaScript callback: error: late boom
 main: got callback 15
-main: done
 value callback from the event loop: result arrived
+callback 19b: result arrived
+JavaScript caught: error: boom 19
+main: done
 JavaScript caught: unsafe boom
 JavaScript caught: mhs: the Haskell runtime has stopped (an exception unwound the runtime: unsafe boom)

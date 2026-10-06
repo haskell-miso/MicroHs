@@ -46,6 +46,10 @@ instance Show BadShow where
   show _ = error "show failed"
 instance Exception BadShow
 
+-- Call the value callback $1 now, and report whether its result arrived or it threw.
+foreign import javascript "try { var r = $1(); console.log('callback 19b: ' + (r && r.n === 19 ? 'result arrived' : 'result lost')) } catch (e) { console.log('callback 19b threw: ' + e.message) }"
+  callValueCatch :: JSVal -> IO ()
+
 -- From the event loop: call the value callback $1, and report to $2 whether its result arrived.
 foreign import javascript "setTimeout(() => { var ok; try { ok = $1().n === 13 ? 1 : 0; } catch (e) { console.log('ERROR: ' + e.message); ok = 0; } $2(ok); }, 10)"
   laterValue :: JSVal -> JSVal -> IO ()
@@ -222,6 +226,22 @@ main = do
   cb15 <- syncCallback $ yield >> putMVar mv "callback 15"
   later cb15 5
   takeMVar mv >>= putStrLn . ("main: got " ++)
+
+  -- 19. A callback from the event loop wakes a thread and then dies of an exception.
+  --     The thread runs before that callback returns to JavaScript, and calls a
+  --     second callback from an import: that one must neither throw the first one's
+  --     exception nor lose its result, and the first one's caller must get it.
+  gate19 <- newEmptyMVar
+  done19 <- newEmptyMVar
+  cb19b <- syncCallback' $ mkObj 19
+  _ <- forkIO $ do
+    takeMVar gate19
+    callValueCatch cb19b
+    putMVar done19 ()
+  cb19 <- syncCallback $ putMVar gate19 () >> throwIO (ErrorCall "boom 19")
+  laterCatch cb19 50   -- after test 13's timer, so the output order is fixed
+  takeMVar done19
+  threadDelay 20000
 
   -- 16. A JavaScript exception from an unsafe import in a callback unwinds the C
   --     stack of the runtime (fatal): later callbacks are refused with an error

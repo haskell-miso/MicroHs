@@ -211,12 +211,16 @@ EM_JS(void, mhs_js_init, (void), {
           throw new Error("mhs: callback called after being freed");
         var p = _mhs_js_alloc(4 * (n + 1));
         for (var i = 0; i < n; i++) HEAP32[(p >> 2) + i] = M.newJSVal(args[i]);
-        var v;
+        var v, err = null;
         M.enter(function() {
           var r = _mhs_js_callback(f.mhs_sp, ret, n, p);
-          /* Take the result before any other Haskell thread runs: nothing on the
-           * Haskell side references it now, so a GC would drop its handle. */
-          if (ret && !M.callbackError) v = M.getJSVal(r);
+          /* Take this callback's error, and its result, before any other Haskell
+           * thread runs: those threads can run other callbacks, which use the same
+           * callbackError slot, and nothing on the Haskell side references the
+           * result now, so a GC would drop its handle. */
+          err = M.callbackError;
+          M.callbackError = null;
+          if (ret && !err) v = M.getJSVal(r);
         });
         if (M.dead) return v;
         _mhs_js_free_mem(p);
@@ -224,11 +228,8 @@ EM_JS(void, mhs_js_init, (void), {
          * may have made runnable, or left blocked (does nothing if the threads are
          * already running, i.e., the callback was called from a JavaScript import). */
         M.runThreads();
-        if (M.callbackError) {
-          var e = M.callbackError;
-          M.callbackError = null;
-          throw e;
-        }
+        if (err)
+          throw err;
         return v;
       };
       var f;
@@ -8296,19 +8297,18 @@ mhs_js_settle(uvalue_t sp, int err, int kind, int i, double d)
 static char *
 exn_cstring(NODEPTR exn)
 {
-  const char *msg;
   if (GETTAG(exn) == T_INT) {
-    msg = rts_exn_msg(GETVALUE(exn));
+    return strdup(rts_exn_msg(GETVALUE(exn)));
   } else if (ISJSVAL(exn)) {
     return mhs_js_exn_cstring((int)(intptr_t)FORPTR(exn)->payload.bs_array); /* malloc()ed */
   } else {
     GCCHECK(1);
     PUSH(new_ap(combShowExn, exn));
     NODEPTR x = evali(TOP(0));
-    msg = evalstring(x).bs_array;
+    char *msg = evalstring(x).bs_array; /* malloc()ed */
     POP(1);
+    return msg;
   }
-  return strdup(msg);
 }
 
 /* A callback thread that had been left blocked died of an uncaught exception: there
