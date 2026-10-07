@@ -2073,29 +2073,27 @@ tcExprR mt ae =
       unifyLevel loc "a splice" LObj cur
       -- Inside a low quotation the spliced code must be Low,
       -- otherwise (object code, or a Code quotation) it can be Code or Low.
-      mk <- gets quoteKind
-      q <- case mk of
-             Nothing -> newQuoteVar
-             Just k -> do
-               k' <- derefUVar k
-               case k' of
-                 EVar c | c == identLow -> return k'
-                 _ -> newQuoteVar
+      -- (In a Low quotation the kind is checked, with a good error message, by lowZonk.)
+      q <- newQuoteVar
       t <- tGetExpType mt
       e' <- withQuote Nothing $ withLevel LMeta $ tCheckExpr (EApp q t) e
       return (ESplice (Just q) e')
-    ETuple es ->
-      case unTuple mt of
-        Just ts | length ts == length es -> do
-          ees <- zipWithM tCheckExpr ts es
-          return (ETuple ees)
-        _ -> do
-          (ees, tes) <- mapAndUnzipM tInferExpr es
-          let
-            n = length es
-            ttup = tApps (tupleConstr loc n) tes
-          munify loc mt ttup
-          return (ETuple ees)
+    ETuple es -> do
+      mq <- lowContext
+      if isJust mq then
+        tcExpr mt (eApps (EVar (tupleConstr loc (length es))) es)   -- low code: the constructor gets a type
+       else do
+        case unTuple mt of
+          Just ts | length ts == length es -> do
+            ees <- zipWithM tCheckExpr ts es
+            return (ETuple ees)
+          _ -> do
+            (ees, tes) <- mapAndUnzipM tInferExpr es
+            let
+              n = length es
+              ttup = tApps (tupleConstr loc n) tes
+            munify loc mt ttup
+            return (ETuple ees)
     EParen e -> tcExpr mt e
     EDo mmn ass -> do
       case ass of
@@ -2160,16 +2158,20 @@ tcExprR mt ae =
         EAlts [([], e)] [] -> tcExpr mt e
         _                  -> tcExpr mt $ ECase (EListish (LList [])) [(EVar (mkIdent "_"), a)]
 
-    EListish (LList es) ->
-      case unList mt of
-        Just t -> do
-          es' <- mapM (tCheckExpr t) es
-          return (EListish (LList es'))
-        _ -> do
-          te <- newUVar
-          munify loc mt (tApp (tList loc) te)
-          es' <- mapM (tCheckExpr te) es
-          return (EListish (LList es'))
+    EListish (LList es) -> do
+      mq <- lowContext
+      if isJust mq then
+        tcExpr mt (foldr (\ e r -> EApp (EApp (EVar (mkIdentSLoc loc ":")) e) r) (EVar (mkIdentSLoc loc "[]")) es)   -- low code: constructors get types
+       else do
+        case unList mt of
+          Just t -> do
+            es' <- mapM (tCheckExpr t) es
+            return (EListish (LList es'))
+          _ -> do
+            te <- newUVar
+            munify loc mt (tApp (tList loc) te)
+            es' <- mapM (tCheckExpr te) es
+            return (EListish (LList es'))
     EListish (LCompr eret ass) -> do
       let
         doStmts :: [EStmt] -> [EStmt] -> T ([EStmt], Typed Expr)
@@ -2745,7 +2747,8 @@ tcExprLam mt loc qs = do
       ts <- lamArgTypes loc n t
       mapM_ (addLowCheck q loc LowValue "a lambda bound variable") ts
       e <- ELam loc <$> tcEqns False t qs
-      return $ lowMark loc lowLamPrim (EListish (LList (map ETypeArg ts))) e
+      anns <- mapM (lowAnnNow loc q) ts
+      return $ lowMark loc lowLamPrim (EListish (LList anns)) e
 
 tcEqns :: HasCallStack => Bool -> EType -> [Eqn] -> T [Eqn]
 tcEqns top t eqns = tcEqns' top t eqns
@@ -3848,9 +3851,10 @@ solveMany (cns@(di, ct) : cnss) uns sol imp = do
       case mal of
         Just al | al /= LPoly -> mapM_ (unifyLevel loc ("the dictionary for " ++ showEType ct) al) uses
         _ -> return ()
-      -- Low code cannot use dictionary arguments.
+      -- Low code cannot use dictionary arguments (except type representations, which are meta level).
       qs <- getDictQuotes di
-      mapM_ (\ q -> lowDictCheck q loc ct) qs
+      unless (iCls == identLowRep) $
+        mapM_ (\ q -> lowDictCheck q loc ct) qs
       solveMany cnss uns ((ct, (di, EVar ai)) : sol) imp
     [] -> do
       msol <- solver loc iCls cts
@@ -4445,8 +4449,10 @@ finalizeLevels = do
 lowContext :: T (Maybe EType)
 lowContext = do
   mq <- gets quoteKind
+  tcm <- gets tcMode
   case mq of
     Nothing -> return Nothing
+    Just _ | tcm /= TCExpr -> return Nothing      -- types (and kinds) are not low code
     Just q -> do
       q' <- derefUVar q
       case q' of
@@ -4523,7 +4529,17 @@ lowLeaf loc i t mt r = do
       isLocal <- isJust <$> gets (M.lookup i . localLevels)
       t' <- if isLocal then derefUVar t else tGetExpType mt      -- local variables are monomorphic
       addLowCheck q loc LowWF ("the variable " ++ showIdent i) t'
-      return $ lowMark loc lowTyPrim (ETypeArg t') r
+      ann <- lowAnnNow loc q t'
+      return $ lowMark loc lowTyPrim ann r
+
+-- The annotation for a type in low code.  If the quotation is known to be Low,
+-- this is the type representation, computed here where the dictionaries (e.g.
+-- from an existential pattern) are in scope.  Otherwise it is a placeholder,
+-- replaced at the end of the definition when the kind is known (lowZonk).
+lowAnnNow :: SLoc -> EType -> EType -> T Expr
+lowAnnNow loc q t = do
+  q' <- derefUVar q
+  if isLowKind q' then lowTyExpr loc t else return (ETypeArg t)
 
 -- A literal in low code: mark it with its type.
 lowLit :: SLoc -> Expected -> Expr -> T Expr
@@ -4531,9 +4547,10 @@ lowLit loc mt r = do
   mq <- lowContext
   case mq of
     Nothing -> return r
-    Just _ -> do
+    Just q -> do
       t <- tGetExpType mt
-      return $ lowMark loc lowTyPrim (ETypeArg t) r
+      ann <- lowAnnNow loc q t
+      return $ lowMark loc lowTyPrim ann r
 
 -- The scrutinee of a case in low code must have a value type.
 lowScrutinee :: SLoc -> EType -> T ()
@@ -4555,7 +4572,8 @@ lowLet loc ebs e = do
           Fcn i _ -> do
             (_, t) <- tLookupV i
             addLowCheck q (getSLoc i) LowWF ("the variable " ++ showIdent i) t
-            return [ETuple [ELit loc (LStr (unIdent i)), ETypeArg t]]
+            ann <- lowAnnNow loc q t
+            return [ETuple [ELit loc (LStr (unIdent i)), ann]]
           _ -> return []
       return $ lowMark loc lowLetPrim (EListish (LList its)) e
 
@@ -4699,7 +4717,7 @@ lowAnn loc ae =
 lowTyExpr :: SLoc -> EType -> T Expr
 lowTyExpr loc t = do
   t' <- derefUVar t
-  d <- newDict loc (EApp (EVar identLowRep) t')
+  d <- withLevel LMeta $ newDict loc (EApp (EVar identLowRep) t')   -- the annotation is meta level code
   return $ EApp (EVar identLowTyP) d
 
 lowCheck :: SLoc -> LowChk -> String -> EType -> T ()

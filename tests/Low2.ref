@@ -1,0 +1,131 @@
+---- sumSq, reflected
+-- type: Int -> Int
+-- data Bool = False | True
+\ (n :: Int) ->
+  letrec
+    x :: Int -> Int -> Int = \ (i :: Int) (acc :: Int) ->
+        case i > n of
+          False -> x (i + 1) (acc + (i * i))
+          True -> acc
+  in x 1 0
+---- sumSq, C
+#include <stdint.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <math.h>
+
+/* Data.Bool_Type.Bool: False=0, True=1 */
+
+static int64_t x(int64_t n, int64_t i, int64_t acc);
+static int64_t x(int64_t n, int64_t i, int64_t acc) {
+  int64_t r_0;
+  switch ((i > n)) {
+  case 0: {
+  r_0 = x(n, (i + 1), (acc + (i * i))); break; }
+  case 1: {
+  r_0 = acc; break; }
+  default: abort();
+  }
+  return r_0;
+}
+
+int64_t sumsq(int64_t n) {
+  return x(n, 1, 0);
+}
+---- sumSq, JavaScript
+// data Bool = False | True
+function sumsq(n) {
+  function x(i, acc) {
+    let r_0;
+    switch ((i > n ? 1 : 0)) {
+    case 0: {
+    r_0 = x((i + 1), (acc + (i * i))); break; }
+    case 1: {
+    r_0 = acc; break; }
+    }
+    return r_0;
+  }
+  return x(1, 0);
+}
+---- scaledArea, reflected
+-- type: Double -> Shape -> Double
+-- data Shape = Circle Double | Rect Double Double
+\ (k :: Double) (s :: Shape) ->
+  let scale :: Double -> Double = \ (x :: Double) ->
+        x * k
+  in case s of
+       Circle x3 -> scale ((3.0 * x3) * x3)
+       Rect x5 x6 -> scale (x5 * x6)
+---- scaledArea, C
+#include <stdint.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <math.h>
+
+struct Shape { int tag; union { struct { double f0; } Circle; struct { double f0; double f1; } Rect; } u; };
+
+static double scale(double k, double x) {
+  return (x * k);
+}
+
+double scaled_area(double k, struct Shape* s) {
+  double r_0;
+  switch (s->tag) {
+  case 0: {
+  double x3 = s->u.Circle.f0;
+  r_0 = scale(k, ((3.0 * x3) * x3)); break; }
+  case 1: {
+  double x5 = s->u.Rect.f0;
+  double x6 = s->u.Rect.f1;
+  r_0 = scale(k, (x5 * x6)); break; }
+  default: abort();
+  }
+  return r_0;
+}
+---- firstBig, reflected
+-- type: Int -> [Int] -> Maybe Int
+-- data [] #0 = [] | (:) #0 [#0]
+-- data Bool = False | True
+-- data Maybe #0 = Nothing | Just #0
+\ (n :: Int) (xs :: [Int]) ->
+  let big :: Int -> Bool = \ (x :: Int) ->
+        n < x
+  in letrec
+       go :: [Int] -> Maybe Int = \ (l :: [Int]) ->
+           case l of
+             [] -> Nothing
+             x3 : x4 -> case big x3 of
+                 False -> go x4
+                 True -> Just x3
+     in go xs
+---- firstBig, JavaScript
+// data [] #0 = [] | (:) #0 [#0]
+// data Bool = False | True
+// data Maybe #0 = Nothing | Just #0
+function firstBig(n, xs) {
+  function big(x) {
+    return (n < x ? 1 : 0);
+  }
+  function go(l) {
+    let r_0;
+    switch (l[0]) {
+    case 0: {
+    r_0 = [0]; break; }
+    case 1: {
+    const x3 = l[1];
+    const x4 = l[2];
+    let r_1;
+    switch (big(x3)) {
+    case 0: {
+    r_1 = go(x4); break; }
+    case 1: {
+    r_1 = [1, x3]; break; }
+    }
+    r_0 = r_1; break; }
+    }
+    return r_0;
+  }
+  return go(xs);
+}
+---- run
+(385,24.0,Just 7)

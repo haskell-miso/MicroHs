@@ -188,6 +188,7 @@ stagedtest:
 	sh errtester.sh $(MHS) < stagederr.test
 	$(TMHS) Low1       && $(EVAL) > Low1.out       && diff Low1.ref Low1.out
 	$(TMHS) Low2       && $(EVAL) > Low2.out       && diff Low2.ref Low2.out
+	$(TMHS) Low3       && $(EVAL) > Low3.out       && diff Low3.ref Low3.out
 	sh errtester.sh $(MHS) < lowerr.test
 	$(TMHS) --stdin < istaged.in | sed -e '1,/^>/d' > istaged.out && diff istaged.ref istaged.out
 
