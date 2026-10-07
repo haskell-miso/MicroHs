@@ -187,6 +187,7 @@ stagedtest:
 	$(TMHS) StagedInteger && $(EVAL) > StagedInteger.out && diff StagedInteger.ref StagedInteger.out
 	$(TMHS) StagedInfer && $(EVAL) > StagedInfer.out && diff StagedInfer.ref StagedInfer.out
 	$(TMHS) StagedInferInst && $(EVAL) > StagedInferInst.out && diff StagedInferInst.ref StagedInferInst.out
+	$(TMHS) LowInfer   && $(EVAL) > LowInfer.out   && diff LowInfer.ref LowInfer.out
 	sh errtester.sh $(MHS) < stagederr.test
 	$(TMHS) Low1       && $(EVAL) > Low1.out       && diff Low1.ref Low1.out
 	$(TMHS) Low2       && $(EVAL) > Low2.out       && diff Low2.ref Low2.out

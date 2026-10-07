@@ -4312,25 +4312,56 @@ tcTypeLevel env loc l at =
 --    cannot itself have that type is quoted:  e  ~~>  [| e |].
 --    That is a literal, an object level variable, or an application whose
 --    head's result type cannot be a code type (e.g. x * y, whose result is
---    constrained by Num).
+--    constrained by Num), or a lambda.
 --  * At the object level, a meta level variable, or an application with one
 --    at the head, whose result is code is spliced:  e  ~~>  ~e.
+--  * A meta level variable of a code type applied to arguments has its head
+--    spliced (code is not a function):  c a  ~~>  ~c a  (in a quotation at
+--    the meta level).
 --
 -- Both only look at expressions whose stages are known; a stage variable
 -- disables them.
 stageCoercion :: Expected -> Expr -> T (Maybe Expr)
-stageCoercion mt ae
-  | not (candidate hd) = return Nothing
+stageCoercion mt ae0
+  | not (candidate hd0) = return Nothing
   | otherwise = do
       tcm <- gets tcMode
       if tcm /= TCExpr then return Nothing else do
+        (hd, args) <- seeThroughDollar hd0 args0
+        stageCoercionApp mt (eApps hd args) hd args
+  where
+    (hd0, args0) = flatApp ae0 []
+    candidate (EVar i) = not (isIdent dictPrefixDollar i) && not (isDummyIdent i)
+    candidate (ELit _ l) = isSourceLit l && null args0
+    candidate (ELam _ _) = True
+    candidate _ = False
+    isSourceLit (LPrim _) = False
+    isSourceLit _ = True
+    flatApp (EApp f a) as = flatApp f (a : as)
+    flatApp e as = (e, as)
+    -- f $ x is checked as f x (see tcExprAp), so look at it that way.
+    seeThroughDollar h@(EVar i) (f : x : as) = do
+      env <- gets valueTable
+      case stLookup "" i env of
+        Right (Entry (EVar ii) _) | ii == mkIdent "Data.Function.$" ->
+          let (h', as') = flatApp f [] in seeThroughDollar h' (as' ++ x : as)
+        _ -> return (h, f : x : as)
+    seeThroughDollar h as = return (h, as)
+
+stageCoercionApp :: Expected -> Expr -> Expr -> [Expr] -> T (Maybe Expr)
+stageCoercionApp mt ae hd args = do
         cur <- gets curLevel >>= derefLevel
+        appliedCode <- isAppliedCode
         case cur of
+          -- Code is not a function: c a1 .. an  ~~>  [| ~c a1 .. an |]
+          LMeta | appliedCode -> return (Just (EQuote Nothing ae))
           LMeta -> do
             code <- expectsCode mt
             if not code then return Nothing else do
               q <- cannotBeCode
               return $ if q then Just (EQuote Nothing ae) else Nothing
+          -- c a1 .. an  ~~>  ~c a1 .. an
+          LObj | appliedCode -> return (Just (eApps (ESplice Nothing hd) args))
           LObj -> do
             s <- isCodeHead
             return $ if s then Just (ESplice Nothing ae) else Nothing
@@ -4347,14 +4378,7 @@ stageCoercion mt ae
               return Nothing
           _ -> return Nothing
   where
-    (hd, args) = flatApp ae []
     nargs = length args
-
-    candidate (EVar i) = not (isIdent dictPrefixDollar i) && not (isDummyIdent i)
-    candidate (ELit _ l) = isSourceLit l && null args
-    candidate _ = False
-    isSourceLit (LPrim _) = False
-    isSourceLit _ = True
 
     -- The expected type is Code t or Low t.
     expectsCode (Check t) = isCodeType <$> derefUVar t
@@ -4379,9 +4403,22 @@ stageCoercion mt ae
           return (Just (l, s))
     headInfo _ = return Nothing
 
+    -- A meta level variable of a code type, applied to arguments.
+    isAppliedCode
+      | null args = return False
+      | otherwise = do
+          mi <- headInfo hd
+          case mi of
+            Just (Just LMeta, s) -> do
+              s' <- derefUVar s
+              let (_, _, t) = splitContext s'
+              isCodeType <$> derefUVar t
+            _ -> return False
+
     cannotBeCode =
       case hd of
         ELit _ _ -> return True
+        ELam _ _ -> return True               -- a function is not code
         _ -> do
           mi <- headInfo hd
           case mi of
