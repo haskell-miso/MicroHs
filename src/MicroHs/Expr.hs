@@ -203,8 +203,9 @@ data Expr
   | ESelect [Ident]
   | ETypeArg EType           -- @type
   -- two-level type theory (staging)
-  | EQuote Expr              -- [| e |]   quote object-level code,  e :: a  ==>  [| e |] :: Code a
-  | ESplice Expr             -- ~e        splice meta-level code,   e :: Code a  ==>  ~e :: a
+  -- The type is the kind of code: Code or Low (Nothing before type checking).
+  | EQuote (Maybe EType) Expr  -- [| e |]   quote object-level code,  e :: a  ==>  [| e |] :: Code a
+  | ESplice (Maybe EType) Expr -- ~e        splice meta-level code,   e :: Code a  ==>  ~e :: a
   -- only while type checking: adjust the stage of e from the first level to the second.
   -- The optional type is the type of e, needed when the adjustment has to be a splice.
   | EStaged Level Level (Maybe EType) Expr
@@ -244,8 +245,8 @@ instance NFData Expr where
   rnf (EUpdate a b) = rnf a `seq` rnf b
   rnf (ESelect a) = rnf a
   rnf (ETypeArg a) = rnf a
-  rnf (EQuote a) = rnf a
-  rnf (ESplice a) = rnf a
+  rnf (EQuote a b) = rnf a `seq` rnf b
+  rnf (ESplice a b) = rnf a `seq` rnf b
   rnf (EStaged a b c d) = rnf a `seq` rnf b `seq` rnf c `seq` rnf d
   rnf (EAt a b) = rnf a `seq` rnf b
   rnf (EViewPat a b) = rnf a `seq` rnf b
@@ -635,8 +636,8 @@ instance HasLoc Expr where
   getSLoc (EUpdate e _) = getSLoc e
   getSLoc (ESelect is) = getSLoc is
   getSLoc (ETypeArg t) = getSLoc t
-  getSLoc (EQuote e) = getSLoc e
-  getSLoc (ESplice e) = getSLoc e
+  getSLoc (EQuote _ e) = getSLoc e
+  getSLoc (ESplice _ e) = getSLoc e
   getSLoc (EStaged _ _ _ e) = getSLoc e
   getSLoc (EAt i _) = getSLoc i
   getSLoc (EViewPat e _) = getSLoc e
@@ -814,8 +815,8 @@ allVarsExpr' aexpr =
     EUpdate e ies -> allVarsExpr' e . composeMap field ies
     ESelect _ -> id
     ETypeArg _ -> id
-    EQuote e -> allVarsExpr' e
-    ESplice e -> allVarsExpr' e
+    EQuote _ e -> allVarsExpr' e
+    ESplice _ e -> allVarsExpr' e
     EStaged _ _ _ e -> allVarsExpr' e
     EAt i e -> (i :) . allVarsExpr' e
     EViewPat e p -> allVarsExpr' e . allVarsExpr' p
@@ -1057,8 +1058,8 @@ instance Pretty Expr where
         EUpdate ee ies -> ppE 12 ee <> text "{" <+> hsep (punctuate (text ",") (map (ppField l) ies)) <+> text "}"
         ESelect is -> maybeParens (prec > appPrec) $ hcat $ map (\ i -> text "." <> pPrint0 l i) is
         ETypeArg t -> text "@" <> ppE appPrec t
-        EQuote e -> text "[|" <+> ppE 0 e <+> text "|]"
-        ESplice e -> text "~" <> ppE (appPrec + 1) e
+        EQuote _ e -> text "[|" <+> ppE 0 e <+> text "|]"
+        ESplice _ e -> text "~" <> ppE (appPrec + 1) e
         EStaged l1 l2 _ e -> text ("{" ++ showLevel l1 ++ "->" ++ showLevel l2 ++ "}") <> ppE (appPrec + 1) e
         EAt i e -> pPrint0 l i <> text "@" <> ppE appPrec e
         EViewPat e p -> parens $ ppE appPrec e <+> text "->" <+> ppE appPrec p

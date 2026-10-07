@@ -115,6 +115,115 @@ e.g. `show (sum [1..100 :: Int])` can be computed at compile time.
 `codeList` (the code for a list, from the code of its elements), and the code
 generation monad `Gen` with `runGen`, `gen` (let insertion) and `genLet`.
 
+## Closure-free code: `Low`
+
+Besides `Code`, there is a second kind of object code, `Low`, in the style of
+
+* *Closure-Free Functional Programming in a Two-Level Type Theory*, ICFP 2024
+
+The paper's object language has two sorts of types: *value types* (first order
+data) and *computation types* (functions from values).  Functions are never
+values: they cannot be passed as arguments, stored in data, or returned
+partially applied, so the generated code needs no closures at run time, and
+it can be compiled like C.  All the higher order programming (streams, monads,
+code generators) happens at the meta level, and disappears during staging.
+
+```haskell
+import Staged.Low
+
+Low a       -- the meta level type of closure free object code of type a
+```
+
+Quotations and splices are shared with `Code`: which kind of code a quotation
+is, is determined by its type.  `[| e |] :: Low t` is a Low quotation, and
+inside it only `Low` code can be spliced.  A `Low t` can be spliced wherever
+a `Code t` can (object code, or a Code quotation): low code is a subset of
+ordinary code.  (A quotation whose type is not determined by its uses is a
+`Code` quotation; give signatures to generators.)
+
+```haskell
+power :: Int -> Low Int -> Low Int
+power 0 _ = [| 1 |]
+power n x = [| ~x * ~(power (n - 1) x) |]
+
+sumSq :: Low Int -> Low Int                   -- a loop: a recursive low function
+sumSq n = runGen $ do
+  go <- genRec $ \ go -> [| \ i acc -> if i > ~n then acc else ~go (i + 1) (acc + i * i) |]
+  return [| ~go 1 0 |]
+
+sumSquares :: Int -> Int                      -- ordinary code; the low code is spliced in
+sumSquares n = ~(sumSq [| n |])
+```
+
+Low code is a subset of Haskell, checked by the type checker:
+
+* *Value types* are `Int`, `Word`, `Int64`, `Word64`, `Double`, `Float`,
+  `Char`, type variables, and data types (including tuples, lists, `Maybe`,
+  `Bool`, user data types and newtypes) whose fields are value types; no
+  existentials, no functions in data.
+* Lambda bound variables, and the scrutinees of `case`, have value types.
+  Any other variable, and the quoted type, has a *low type*: a value type or
+  a first order function type `V1 -> ... -> Vn -> V` (a computation type).
+  Local functions (`let`, `where`, recursive or not) are fine; a function is
+  called with all its arguments (partial applications are eta expanded).
+* No overloading: a class constraint in low code must be solved by a known
+  instance whose method is a primitive, e.g. `+`, `*`, `==`, `<`, `quot` on
+  `Int`, `/` on `Double`.  Other global functions are not available in low
+  code, only constructors, primitives, foreign imported C functions, and
+  local definitions.  (The meta level has all of Haskell.)
+* Low code is *strict*: `let` bound values, function arguments, and
+  constructor fields are evaluated.  Functions are call by name, as in the
+  paper, which is harmless since they are only ever called.
+* A type variable in low code is a value type.  A generator that is
+  polymorphic in such a type needs a `LowRep a` constraint (the paper's
+  `{A : ValTy}`); the compiler solves `LowRep` for every concrete type.
+
+```haskell
+twice :: LowRep a => Low (a -> a) -> Low a -> Low a
+twice f x = genLet x $ \ y -> [| ~f (~f ~y) |]
+```
+
+### Reflection
+
+Low code is first order data, so it can be inspected: `reflect` turns a
+`Low a` into a `LowProg`, a syntax tree where every binder has its type,
+all calls are saturated, and functions only occur as the right hand sides of
+lets (or as the whole program).  User written code generators can produce
+C, JavaScript, Verilog, ... from it; `Staged.Low.C` and `Staged.Low.JS` are
+small examples.  The generated text is ordinary compile time data:
+
+```haskell
+sumSqC :: String
+sumSqC = ~(lowString (toC "sumsq" (reflect [| \ n -> ~(sumSq [| n |]) |])))
+```
+
+```haskell
+data LowTy   = TInt | TWord | ... | TFun [LowTy] LowTy | TData String [LowTy] LowDecl | ...
+data LowTerm = LVar String LowTy | LLit LowLit LowTy | LPrim String LowTy | LForeign String String LowTy
+             | LApp LowTerm [LowTerm] | LLam [(String, LowTy)] LowTerm
+             | LLet String LowTy LowTerm LowTerm | LLetRec [(String, LowTy, LowTerm)] LowTerm
+             | LCase LowTerm [LowCon] [(LowCon, [(String, LowTy)], LowTerm)] (Maybe LowTerm)
+             | LCon LowCon LowTy [LowTerm] | LFail String
+data LowProg = LowProg { progType :: LowTy, progFree :: [(String, LowTy)], progDecls :: [LowDecl], progBody :: LowTerm }
+```
+
+Reflection breaks the paper's generativity (a meta program could look inside
+code), so only use it at the end of a generator.
+
+### Library
+
+`lib/Staged/Low.hs` provides `Low`, `LowRep`, the types above, `reflect`,
+`typeOf`, `lowPretty`, the code generation monad `Gen` with `runGen`, `gen`,
+`genRec` (a recursive definition) and `genLet`, and `lowInt`, `lowDouble`,
+`lowChar`, `lowString`, `lowBool`, ... for compile time values.
+
+### Not done
+
+Low code still runs as combinators when it is spliced into a program; a
+backend that compiles it to C and links it (via the FFI) is the next step.
+Products of computations (the paper's join points), mutable references, and
+the paper's dependently typed stream library are not covered.
+
 ## Implementation
 
 ### Type checker (`src/MicroHs/TypeCheck.hs`)
@@ -188,9 +297,40 @@ compiling target (e.g., emscripten) `Int` has the size of the host, and a
 foreign function that is not in the runtime system of the compiler (one from
 the user's own C code) cannot be called at compile time.
 
+### Low code
+
+`Low` is a second kind of quotation, not a second stage: a Low quotation is
+checked at the object level like a Code quotation.  The kind of a quotation
+is a unification variable (kind `Type -> Type`) that its uses unify with
+`Code` or `Low`; quotation kinds are never generalized, and an undetermined
+kind is `Code` at the end of the definition (`lowFinalizeEqns`).  Inside a
+quotation that may be Low the type checker records the checks of the rules
+above (`ssLowChecks`), done when the kind is known, and marks the leaves,
+lambdas and lets with their types (`$lowty`, `$lowlam`, `$lowlet`); the
+marks become expressions that compute the run time representation of the
+types (the `lowTyP` method of a `LowRep` dictionary) if the quotation is Low,
+and are removed if it is Code.  `LowRep t` is solved by a built in solver
+(`solveLowRep`) that builds a `LowTy` from the data table, with goals for the
+type arguments; only type variables need a dictionary argument.
+
+The desugarer (`Desugar.hs`) keeps the structure of a Low quotation: cases,
+constructors, lets and recursive lets become pseudo primitives (`$lowcase`,
+`$lowcon`, `$lowletrec`, ...), join points of the pattern match compiler
+become functions, and let bound expressions are not inlined.  `Stage.hs`
+compiles a Low quotation to meta level code that builds the HOAS
+representation `Staged.Low.Internal.LowExp`, resolving class methods to
+primitives through the instance dictionaries.  A `Low` value spliced into
+object code is read back (`lowToExp`) as ordinary code with strict
+semantics.  `Staged.Low.reflect` reads the HOAS representation back as a
+first order tree, computes the types of the let bound variables and case
+alternatives, and saturates the calls (section 2.2 of the paper).
+
 ### Files touched
 
 `Expr.hs` (`EQuote`, `ESplice`, `EStaged`, `Level`), `Parse.hs`,
 `TCMonad.hs`, `TypeCheck.hs`, `Desugar.hs`, `Stage.hs` (new), `Compile.hs`,
 `Flags.hs` (`-ddump-stage`), `lib/Primitives.hs` (`Code`), `lib/Staged.hs` (new),
 `tests/Staged*.hs`, `tests/stagederr.test`, `tests/istaged.in`.
+Low: `Names.hs`, `TCMonad.hs`, `TypeCheck.hs`, `Desugar.hs`, `Stage.hs`,
+`lib/Primitives.hs` (`Low`), `lib/Staged/Low.hs`, `lib/Staged/Low/Internal.hs`,
+`lib/Staged/Low/C.hs`, `lib/Staged/Low/JS.hs`, `tests/Low*.hs`, `tests/lowerr.test`.

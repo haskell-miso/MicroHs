@@ -893,8 +893,8 @@ pAExpr' =
       (EVar   <$> pLQIdentSym)
   <|> (EVar   <$> pUQIdentSym)
   <|> pLit
-  <|> (lbra *> pSpec '|' *> (EQuote <$> pExpr) <* pSpec '|' <* rbra)   -- [| e |], quote
-  <|> (pSpec '~' *> (ESplice <$> pAExpr))                              -- ~e, splice
+  <|> (lbra *> pSpec '|' *> (EQuote Nothing <$> pExpr) <* pSpec '|' <* rbra)   -- [| e |], quote
+  <|> (pSpec '~' *> (ESplice Nothing <$> pAExpr))                              -- ~e, splice
   <|> (lpar *> (eTuple <$> sepBy pExpr comma) <* rpar)
   <|> (lbra *> (EListish <$> pListish) <* rbra)
   <|> (lpar *> (ESectL <$> pExprOp) <*> (pOperComma <* rpar))
