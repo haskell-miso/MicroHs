@@ -2169,7 +2169,7 @@ tcExprS mt ae =
     EListish (LList es) -> do
       mq <- lowContext
       if isJust mq then
-        tcExpr mt (foldr (\ e r -> EApp (EApp (EVar (mkIdentSLoc loc ":")) e) r) (EVar (mkIdentSLoc loc "[]")) es)   -- low code: constructors get types
+        tcExpr mt (foldr (EApp . EApp (EVar (mkIdentSLoc loc ":"))) (EVar (mkIdentSLoc loc "[]")) es)   -- low code: constructors get types
        else do
         case unList mt of
           Just t -> do
@@ -4809,9 +4809,7 @@ lowZonk k ae =
     ESplice (Just q) e -> do
       q' <- derefUVar q
       let loc = getSLoc e
-          inLow = case k of
-                    Just kk -> isLowKind kk
-                    Nothing -> False
+          inLow = maybe False isLowKind k
       q'' <- case q' of
                EUVar _ -> do
                  -- An undetermined kind of a splice: Low inside a Low quotation, otherwise Code.
@@ -4820,7 +4818,7 @@ lowZonk k ae =
                  return d
                _ -> return q'
       when (inLow && not (isLowKind q'')) $
-        tcError loc $ "only Low code can be spliced into low code"
+        tcError loc "only Low code can be spliced into low code"
       unless (isLowKind q'' || isCodeKind q'') $
         tcError loc $ "a splice must have type Code or Low, not " ++ showEType (EApp q'' (EVar dummyIdent))
       ESplice (Just q'') <$> lowZonk Nothing e

@@ -79,10 +79,10 @@ instance Show LowTy where
       TDouble -> showString "Double"
       TFloat -> showString "Float"
       TChar -> showString "Char"
-      TFun as r -> showParen (p > 0) $ foldr (\ a s -> showsPrec 1 a . showString " -> " . s) (showsPrec 0 r) as
-      TData n [a] _ | base n == "[]" -> showChar '[' . showsPrec 0 a . showChar ']'
+      TFun as r -> showParen (p > 0) $ foldr (\ a s -> showsPrec 1 a . showString " -> " . s) (shows r) as
+      TData n [a] _ | base n == "[]" -> showChar '[' . shows a . showChar ']'
       TData n as _ | all (== ',') (base n), length as == length (base n) + 1 ->
-        showChar '(' . foldr (.) id (zipWith (\ i a -> (if i == (0 :: Int) then id else showString ", ") . showsPrec 0 a) [0 ..] as) . showChar ')'
+        showChar '(' . foldr (.) id (zipWith (\ i a -> (if i == (0 :: Int) then id else showString ", ") . shows a) [0 ..] as) . showChar ')'
       TData n [] _ -> showString (base n)
       TData n as _ -> showParen (p > 10) $ showString (base n) . foldr (\ a s -> showChar ' ' . showsPrec 11 a . s) id as
       TParam i -> showChar '#' . shows i

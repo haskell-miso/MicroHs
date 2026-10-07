@@ -343,7 +343,7 @@ lowQuoteExp lenv loc env ae =
               (es, b) = case getAppE body of
                           (Lit (LPrim q), eb) | q == lowRecBodyPrim, length eb == n + 1 -> (init eb, last eb)
                           _ -> stageError loc "bad recursive let in low code"
-              rhss = encList (zipWith (\ t e -> lowFunE lenv loc env' t e) (map meta ts) es)
+              rhss = encList (zipWith (lowFunE lenv loc env') (map meta ts) es)
               bind = foldr (\ (k, x) r -> App (Lam x r) (apps (lowV "lowNth") [Lit (LInt k), Var vs])) (encTuple [rhss, lowQuoteExp lenv loc env' b]) (zip [0 ..] xs)
           in  apply (apps (lowV "HLetRec") [encList (zipWith (\ x t -> encTuple [lowStr (unIdent x), meta t]) xs ts), Lam vs bind]) args
       | p == lowCasePrim, x : cons : Lit (LInt k) : rest <- as, length rest >= k + 1 ->
