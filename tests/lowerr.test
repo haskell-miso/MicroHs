@@ -3,7 +3,7 @@ import Staged.Low
 f :: Low ((Int -> Int) -> Int)
 f = [| \ g -> g 1 |]
 -----
-"../tmp/E.hs": line 5, col 11: low code: a lambda bound variable must have a value type (first order data), not (Int -> Int)
+"../tmp/E.hs": line 5, col 8: low code: the type of a quotation must have a value type or a first order function type, not (Int -> Int) -> Int
 
 =====
 module E() where
@@ -46,7 +46,7 @@ f x = [| length [~x] |]
 g :: Int -> Int
 g n = ~(f [| n |])
 -----
-"../tmp/E.hs": line 5, col 1: staging error: the method length is not a primitive in this instance, so it cannot be used in low code
+"../tmp/E.hs": line 5, col 1: staging error: cannot use Data.List.length in low code: it is not a primitive (low code can only use primitives, constructors, and local definitions)
 
 =====
 module E() where
