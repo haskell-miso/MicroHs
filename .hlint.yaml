@@ -93,6 +93,7 @@
     - --ignore-glob=tests/Staged3.hs
     - --ignore-glob=tests/Staged4.hs
     - --ignore-glob=tests/StagedInteger.hs
+    - --ignore-glob=tests/StagedInferInst.hs
     - --ignore-glob=tests/StagedLib.hs
     - --ignore-glob=tests/Fix.hs
     - --ignore-glob=tests/Unboxed.hs
