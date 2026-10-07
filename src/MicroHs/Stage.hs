@@ -431,7 +431,7 @@ lowLeaf :: LowEnv -> SLoc -> BEnv -> Exp -> Exp -> [Exp] -> Exp
 lowLeaf lenv loc env t ae args =
   case getAppE ae of
     -- a marked head inside a marked application (numeric literals)
-    (Lit (LPrim p), t' : e' : as) | p == lowTyPrim -> lowLeaf lenv loc env (metaExp lenv loc env t') e' (as ++ args)
+    (Lit (LPrim p), t' : e' : more) | p == lowTyPrim -> lowLeaf lenv loc env (metaExp lenv loc env t') e' (more ++ args)
     (Var i, []) ->
       case M.lookup i env of
         Just BLow -> apply (Var i)
@@ -470,10 +470,9 @@ lowLeaf lenv loc env t ae args =
           | m == mkIdent "Data.Fractional.fromRational", f == mkIdent "Data.Ratio_Type._mkRational", g == mkIdent "Data.Integer_Type._intToInteger", g' == g ->
           apps (lowV "lowLitFromRational") [Lit (LInt n), Lit (LInt d), App (lowV "lowFunResult") t]
         _ ->
-          case resolveGlobal lenv env ae of
-            Right (Left p) -> apply (apps (lowV "HPrim") [lowStr p, t])
-            Right (Right (g, c)) -> apply (apps (lowV "HForeign") [lowStr (unIdent g), lowStr c, t])
-            Left msg -> stageError loc msg
+          let prim p = apply (apps (lowV "HPrim") [lowStr p, t])
+              ffi (g, c) = apply (apps (lowV "HForeign") [lowStr (unIdent g), lowStr c, t])
+          in  either (stageError loc) (either prim ffi) (resolveGlobal lenv env ae)
 
 dropModule :: String -> String
 dropModule s = case break (== '.') s of
