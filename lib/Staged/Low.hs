@@ -150,7 +150,7 @@ freeVars = nub . go []
 
 -- A small state monad: the names in use (with a counter), and the free variables.
 newtype R a = R (RS -> (a, RS))
-data RS = RS [(String, Int)] [(Int, String, String, LowTy)]
+data RS = RS [String] [(Int, String, String, LowTy)]
 
 unR :: R a -> RS -> (a, RS)
 unR (R f) = f
@@ -165,15 +165,13 @@ instance Monad R where
 
 -- A fresh variable name, based on the name in the source.
 fresh :: String -> R String
-fresh s = R $ \ (RS ns fs) ->
-  let base = case dropWhile (== '$') s of
+fresh s = R $ \ (RS used fs) ->
+  let base = case takeWhile (/= '$') (dropWhile (== '$') s) of
                "" -> "v"
                b@(c : _) | c >= 'a' && c <= 'z' || c == '_' -> b
                          | otherwise -> "v"
-      n = maybe 0 id (lookup base ns)
-      ns' = (base, n + 1) : filter ((/= base) . fst) ns
-      name = if n == 0 then base else base ++ show n
-  in  (name, RS ns' fs)
+      name = head [ n | n <- base : [ base ++ "_" ++ show i | i <- [1 :: Int ..] ], n `notElem` used ]
+  in  (name, RS (name : used) fs)
 
 -- The name of a free (object level) variable.
 freeVar :: Int -> String -> LowTy -> R String
@@ -222,7 +220,7 @@ readBack ae =
       alts' <- mapM alt alts
       d' <- maybe (return Nothing) (fmap Just . readBack) d
       return (LCase s' cons alts' d')
-    HCon c t as -> LCon c t <$> mapM readBack as
+    HCon c t as -> LCon c (applyTy t (length as)) <$> mapM readBack as    -- the type of the (possibly partial) application
     HLit l t -> return (LLit l t)
     HPrim p t -> return (LPrim p t)
     HForeign h c t -> return (LForeign h c t)
@@ -253,11 +251,10 @@ saturate at =
       return (LCase s' cons alts' d')
     LCon c t as -> do
       as' <- mapM saturate as
-      let n = conArity c
-      if length as' < n then
+      if length as' < conArity c then
         etaCon c t as'
        else
-        return (LCon c (applyTy t (length as')) as')
+        return (LCon c t as')
     _ -> return at
 
 mergeLam :: [(String, LowTy)] -> LowTerm -> LowTerm
@@ -285,12 +282,12 @@ satApp f as =
         alts' <- mapM (\ (c, xs, b) -> do { b' <- satApp b vs; return (c, xs, b') }) alts
         d' <- maybe (return Nothing) (fmap Just . (`satApp` vs)) d
         return (LCase s cons alts' d')
-    LCon c t as' -> saturate (LCon c t (as' ++ as))
+    LCon c t as' -> saturate (LCon c (applyTy t (length as)) (as' ++ as))
     _ -> do
       let n = arity (typeOf f)
       if length as < n then
         etaApp f as
-       else if length as == n then
+       else if length as == n || n == 0 then     -- n == 0: the type of f is not known to be a function
         return (LApp f as)
        else
         satApp (LApp f (take n as)) (drop n as)
@@ -319,9 +316,10 @@ etaApp f as =
       return (LLam xs (LApp f (as ++ map (\ (v, t) -> LVar v t) xs)))
     _ -> return (LApp f as)
 
+-- t is the type of the partial application.
 etaCon :: LowCon -> LowTy -> [LowTerm] -> R LowTerm
 etaCon c t as =
-  case applyTy t (length as) of
+  case t of
     TFun ps r -> do
       vs <- mapM (const (fresh "x")) ps
       let xs = zip vs ps
@@ -339,6 +337,92 @@ etaTo t e =
       b <- satApp e (map (\ (v, t') -> LVar v t') xs)
       return (mergeLam xs b)
     _ -> return e
+
+-- Simplification after call saturation (all names are unique):
+--  * a let bound variable is substituted;
+--  * unused functions, variables, literals and constructor applications are removed
+--    (a function is never evaluated, the others cannot fail);
+--  * a function with one (unit) parameter that is called once (a join point
+--    of the pattern match compiler) is inlined;
+--  * the default alternative of a case that covers all constructors is removed.
+simplify :: LowTerm -> LowTerm
+simplify at =
+  case at of
+    LLet x t e b ->
+      let e' = simplify e
+          b' = simplify b
+      in  case e' of
+            LVar _ _ -> substVar x e' b'
+            _ | countVar x b' == 0 && harmless e' -> b'
+            LLam [(_, pt)] body | isUnit pt, countVar x b' == 1, Just b'' <- inlineCall x body b' -> b''
+            _ -> LLet x t e' b'
+    LLetRec bs b ->
+      let bs' = [ (x, t, simplify e) | (x, t, e) <- bs ]
+          b' = simplify b
+          used = [ x | (x, _, _) <- bs', countVar x b' > 0 || any (\ (y, _, e) -> y /= x && countVar x e > 0) bs' ]
+      in  if null used then b' else LLetRec bs' b'
+    LApp f as -> LApp (simplify f) (map simplify as)
+    LLam xs b -> LLam xs (simplify b)
+    LCase s cons alts d ->
+      let alts' = [ (c, xs, simplify b) | (c, xs, b) <- alts ]
+          complete = all (\ c -> c `elem` [ c' | (c', _, _) <- alts' ]) cons
+      in  LCase (simplify s) cons alts' (if complete then Nothing else fmap simplify d)
+    LCon c t as -> LCon c t (map simplify as)
+    _ -> at
+  where
+    harmless e =
+      case e of
+        LLam _ _ -> True
+        LVar _ _ -> True
+        LLit _ _ -> True
+        LCon _ _ as -> all harmless as
+        _ -> False
+    isUnit (TData "()" _ _) = True
+    isUnit _ = False
+
+-- The number of occurrences of a variable.
+countVar :: String -> LowTerm -> Int
+countVar x at =
+  case at of
+    LVar y _ -> if x == y then 1 else 0
+    LApp f as -> sum (map (countVar x) (f : as))
+    LLam _ b -> countVar x b
+    LLet _ _ e b -> countVar x e + countVar x b
+    LLetRec bs b -> sum [ countVar x e | (_, _, e) <- bs ] + countVar x b
+    LCase s _ alts d -> countVar x s + sum [ countVar x b | (_, _, b) <- alts ] + maybe 0 (countVar x) d
+    LCon _ _ as -> sum (map (countVar x) as)
+    _ -> 0
+
+-- Substitute a term (a variable) for a variable.
+substVar :: String -> LowTerm -> LowTerm -> LowTerm
+substVar x r = go
+  where
+    go at =
+      case at of
+        LVar y _ | x == y -> r
+        LApp f as -> LApp (go f) (map go as)
+        LLam xs b -> LLam xs (go b)
+        LLet y t e b -> LLet y t (go e) (go b)
+        LLetRec bs b -> LLetRec [ (y, t, go e) | (y, t, e) <- bs ] (go b)
+        LCase s cons alts d -> LCase (go s) cons [ (c, xs, go b) | (c, xs, b) <- alts ] (fmap go d)
+        LCon c t as -> LCon c t (map go as)
+        _ -> at
+
+-- Replace the (only) call  x arg  by the body of x.
+inlineCall :: String -> LowTerm -> LowTerm -> Maybe LowTerm
+inlineCall x body = go
+  where
+    go at =
+      case at of
+        LApp (LVar y _) [_] | x == y -> Just body
+        LVar y _ | x == y -> Nothing
+        LApp f as -> LApp <$> go f <*> mapM go as
+        LLam xs b -> LLam xs <$> go b
+        LLet y t e b -> LLet y t <$> go e <*> go b
+        LLetRec bs b -> LLetRec <$> mapM (\ (y, t, e) -> (,,) y t <$> go e) bs <*> go b
+        LCase s cons alts d -> LCase <$> go s <*> pure cons <*> mapM (\ (c, xs, b) -> (,,) c xs <$> go b) alts <*> maybe (pure Nothing) (fmap Just . go) d
+        LCon c t as -> LCon c t <$> mapM go as
+        _ -> Just at
 
 -- The declarations of the data types used in a term (and in the types).
 collectDecls :: LowTerm -> [LowDecl]
@@ -372,7 +456,7 @@ reflect l =
   let act = do
         b <- readBack (fromLow l)
         b' <- saturate b >>= etaTo (typeOf b)
-        return b'
+        return (simplify b')
       (body, RS _ fs) = unR act (RS [] [])
   in  LowProg { progType = typeOf body
               , progFree = [ (n, t) | (_, _, n, t) <- fs ]
@@ -401,13 +485,16 @@ ppT ind p at =
     LLit l _ -> ppLit l
     LPrim s _ -> s
     LForeign _ c _ -> "ffi:" ++ c
+    LApp (LPrim op _) [a, b] | Just o <- infixOp op -> par (p > 5) $ ppT ind 6 a ++ " " ++ o ++ " " ++ ppT ind 6 b
     LApp f as -> par (p > 9) $ unwords (ppT ind 10 f : map (ppT ind 10) as)
     LLam xs b -> par (p > 0) $ "\\ " ++ unwords [ "(" ++ x ++ " :: " ++ show t ++ ")" | (x, t) <- xs ] ++ " ->" ++ nl (ind + 2) ++ ppT (ind + 2) 0 b
     LLet x t e b -> par (p > 0) $ "let " ++ x ++ " :: " ++ show t ++ " = " ++ ppT (ind + 4) 0 e ++ nl ind ++ "in " ++ ppT (ind + 3) 0 b
     LLetRec bs b -> par (p > 0) $ "letrec" ++ concat [ nl (ind + 2) ++ x ++ " :: " ++ show t ++ " = " ++ ppT (ind + 4) 0 e | (x, t, e) <- bs ] ++ nl ind ++ "in " ++ ppT (ind + 3) 0 b
     LCase s _ alts d -> par (p > 0) $ "case " ++ ppT ind 0 s ++ " of" ++
-                        concat [ nl (ind + 2) ++ unwords (baseName (conName c) : map fst xs) ++ " -> " ++ ppT (ind + 4) 0 b | (c, xs, b) <- alts ] ++
+                        concat [ nl (ind + 2) ++ ppPat (baseName (conName c)) (map fst xs) ++ " -> " ++ ppT (ind + 4) 0 b | (c, xs, b) <- alts ] ++
                         maybe "" (\ e -> nl (ind + 2) ++ "_ -> " ++ ppT (ind + 4) 0 e) d
+    LCon c _ as | isTupleName (baseName (conName c)) -> "(" ++ intercalate ", " (map (ppT ind 0) as) ++ ")"
+    LCon c _ [a, b] | baseName (conName c) == ":" -> par (p > 4) $ ppT ind 5 a ++ " : " ++ ppT ind 4 b
     LCon c _ [] -> baseName (conName c)
     LCon c _ as -> par (p > 9) $ unwords (baseName (conName c) : map (ppT ind 10) as)
     LFail m -> par (p > 9) $ "fail " ++ show m
@@ -415,6 +502,25 @@ ppT ind p at =
     par True s = "(" ++ s ++ ")"
     par False s = s
     nl n = "\n" ++ replicate n ' '
+
+-- Primitive operators are shown infix (without the type prefix, e.g. d* for Double).
+infixOp :: String -> Maybe String
+infixOp op =
+  case op of
+    c : r | c `elem` "duf", isOp r -> Just r
+    _ | isOp op -> Just op
+    "quot" -> Just "`quot`"
+    "rem" -> Just "`rem`"
+    _ -> Nothing
+  where isOp o = not (null o) && all (`elem` "+-*/<>=&|^") o
+
+isTupleName :: String -> Bool
+isTupleName n = not (null n) && all (== ',') n
+
+ppPat :: String -> [String] -> String
+ppPat c xs | isTupleName c = "(" ++ intercalate ", " xs ++ ")"
+           | c == ":", [a, b] <- xs = a ++ " : " ++ b
+           | otherwise = unwords (c : xs)
 
 ppLit :: LowLit -> String
 ppLit l =

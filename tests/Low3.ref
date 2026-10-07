@@ -1,0 +1,88 @@
+---- sumEvenSquares
+-- type: Int -> Int
+-- data Bool = False | True
+\ (n :: Int) ->
+  letrec
+    x :: Int -> Int -> Int = \ (acc :: Int) (s :: Int) ->
+        case s > n of
+          False -> case (s `rem` 2) == 0 of
+              False -> x acc (s + 1)
+              True -> x (acc + (s * s)) (s + 1)
+          True -> acc
+  in x 0 1
+#include <stdint.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <math.h>
+
+/* Data.Bool_Type.Bool: False=0, True=1 */
+
+static int64_t x(int64_t n, int64_t acc, int64_t s);
+static int64_t x(int64_t n, int64_t acc, int64_t s) {
+  int64_t r_0;
+  switch ((s > n)) {
+  case 0: {
+  int64_t r_1;
+  switch (((s % 2) == 0)) {
+  case 0: {
+  r_1 = x(n, acc, (s + 1)); break; }
+  case 1: {
+  r_1 = x(n, (acc + (s * s)), (s + 1)); break; }
+  default: abort();
+  }
+  r_0 = r_1; break; }
+  case 1: {
+  r_0 = acc; break; }
+  default: abort();
+  }
+  return r_0;
+}
+
+int64_t sum_even_squares(int64_t n) {
+  return x(n, 0, 1);
+}
+---- dotSeq
+-- type: Int -> Int
+-- data (,) #0 #1 = (,) #0 #1
+-- data Bool = False | True
+\ (n :: Int) ->
+  letrec
+    x :: Int -> (Int, Int) -> Int = \ (acc :: Int) (s :: (Int, Int)) ->
+        case s of
+          (a7_1, a8) -> case a7_1 > n of
+              False -> case a8 > 1000 of
+                  False -> x (acc + (a7_1 * a8)) (a7_1 + 1, a8 + 1)
+                  True -> acc
+              True -> acc
+  in x 0 (1, 10)
+---- divDiv
+-- type: Int -> Int -> Int -> Maybe Int
+-- data Maybe #0 = Nothing | Just #0
+-- data Bool = False | True
+\ (a :: Int) (b :: Int) (c :: Int) ->
+  let x1 :: Maybe Int = case b == 0 of
+        False -> Just (a `quot` b)
+        True -> Nothing
+  in case x1 of
+       Nothing -> Nothing
+       Just x3 -> let x1_1 :: Maybe Int = case c == 0 of
+               False -> Just (x3 `quot` c)
+               True -> Nothing
+         in case x1_1 of
+              Nothing -> Nothing
+              Just x3_1 -> Just (x3_1 + 1)
+---- hypot
+#include <stdint.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <math.h>
+
+
+
+double hypot2(double x, double y) {
+  return sqrt(((x * x) + (y * y)));
+}
+---- run
+(220,68)
+(Just 11,Nothing,Nothing)
+5.0

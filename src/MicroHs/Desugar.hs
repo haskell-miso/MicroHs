@@ -118,6 +118,8 @@ wrapTick True  i ee = wrap 0 ee
 dsBind :: Low -> Anns -> Ident -> EBind -> [LDef]
 dsBind low anns v abind =
   case abind of
+    -- Dictionaries (and type representations) are meta level values, also in low code.
+    Fcn f eqns | isDictIdent f -> [(f, dsEqns False (getSLoc f) eqns)]
     Fcn f eqns -> [(f, dsEqns low (getSLoc f) eqns)]
     PatBind p e -> dsPatBind low anns v p e
     _ -> []
@@ -135,7 +137,16 @@ dsEqns low loc eqns =
     Eqn aps _ : _ ->
       let
         vs = allVarsBind $ Fcn (mkIdent "") eqns
-        xs = take (length aps) $ newVars "$q" vs
+        qs = take (length aps) $ newVars "$q" vs
+        -- In low code keep the names of the variables of a single equation (they are reflected).
+        xs = case eqns of
+               [Eqn ps _] | low -> zipWith keepName ps qs
+               _ -> qs
+        keepName (EVar x) q | not (isDummyIdent x) && not (isConIdent x) && length (filter (isVarNamed x) aps) == 1 = x
+                            | otherwise = q
+        keepName _ q = q
+        isVarNamed x (EVar y) = x == y
+        isVarNamed _ _ = False
         mkArm (Eqn ps alts) =
           let ps' = map dsPat ps
           in  (ps', id, dsAlts low alts)
@@ -165,6 +176,7 @@ lowUnitExpr = tupleCon noSLoc 0
 -- Bind a join point in low code:  let x = \ _ -> e in body
 -- The strict semantics of low code must not evaluate e unless it is used.
 lowJoin :: Ident -> Exp -> Exp -> Exp
+lowJoin x _ body | x `notElem` freeVars body = body      -- an unused alternative (e.g. an impossible match failure)
 lowJoin x e body =
   let u = newVar (allVarsExp e)
       lam = App (App (Lit (LPrim lowLamPrim)) (encList [Var (lowIdent "tUnit")])) (Lam u e)
@@ -650,7 +662,10 @@ eLet low i e b =
           [_] | not (hasSplice b), not low || isDict i -> substExp i e b   -- single occurrence, substitute  XXX could be worse if under lambda
           _ | low && isDict i -> substExp i e b
           _   -> App (Lam i b) e  -- just use a beta redex
-  where isDict j = dictPrefixDollar `isPrefixOf` unIdent j
+  where isDict = isDictIdent
+
+isDictIdent :: Ident -> Bool
+isDictIdent j = dictPrefixDollar `isPrefixOf` unIdent j
 
 -- Does the expression contain a splice?
 hasSplice :: Exp -> Bool

@@ -1,6 +1,8 @@
 -- A code generator from low code to JavaScript, as an example of a user
--- written backend for Staged.Low.  Data values are arrays [tag, field, ...],
--- functions are JavaScript functions, a case is a switch on the tag.
+-- written backend for Staged.Low.  A value of a data type whose constructors
+-- have no fields (e.g. Bool) is its tag (a number), other data values are
+-- arrays [tag, field, ...], a newtype is its field.  Local functions are
+-- JavaScript functions, a case is a switch on the tag.
 -- The main entry point is toJS; the generated program defines a function with
 -- the given name that takes the free variables of the program (and its
 -- parameters, if it is a function) and returns the result.
@@ -58,16 +60,22 @@ gen at =
           f' <- gen f
           return (f' ++ "(" ++ intercalate ", " as' ++ ")")
     LLam xs b -> do
-      (r, ss) <- block (gen b)
-      return ("function(" ++ intercalate ", " (map (jsName . fst) xs) ++ ") {\n" ++ unlines (map ("  " ++) ss) ++ "  return " ++ r ++ "; }")
+      f <- freshJ "f"
+      defFun f xs b
+      return f
+    LLet x _ (LLam xs e) b -> do
+      defFun (jsName x) xs e
+      gen b
     LLet x _ e b -> do
       e' <- gen e
       emit ("const " ++ jsName x ++ " = " ++ e' ++ ";")
       gen b
     LLetRec bs b -> do
-      mapM_ (\ (x, _, e) -> do
-               e' <- gen e
-               emit ("function " ++ jsName x ++ "() { return (" ++ e' ++ ").apply(null, arguments); }")) bs
+      -- function declarations are hoisted, so they can call each other
+      mapM_ (\ (x, _, e) ->
+               case e of
+                 LLam xs e' -> defFun (jsName x) xs e'
+                 _ -> do { e' <- gen e; emit ("const " ++ jsName x ++ " = " ++ e' ++ ";") }) bs
       gen b
     LCase s cons alts d -> do
       s' <- gen s
@@ -78,8 +86,8 @@ gen at =
           emit ("const " ++ jsName x ++ " = " ++ s' ++ ";")
           b' <- gen b
           emit (r ++ " = " ++ b' ++ ";")
-        _ -> do
-          emit ("switch (" ++ s' ++ "[0]) {")
+        st -> do
+          emit ("switch (" ++ (if isEnumTy st then s' else s' ++ "[0]") ++ ") {")
           mapM_ (\ (c, xs, b) -> do
                    emit ("case " ++ show (conTag c) ++ ": {")
                    mapM_ (\ (i, (x, _)) -> emit ("const " ++ jsName x ++ " = " ++ s' ++ "[" ++ show i ++ "];")) (zip [1 :: Int ..] xs)
@@ -95,10 +103,26 @@ gen at =
             _ -> return ()
           emit "}"
       return r
-    LCon c _ as -> do
+    LCon c t as -> do
       as' <- mapM gen as
-      return ("[" ++ intercalate ", " (show (conTag c) : as') ++ "]")
+      case t of
+        _ | conNewtype c, [a] <- as' -> return a
+        _ | isEnumTy t -> return (show (conTag c))
+        _ -> return ("[" ++ intercalate ", " (show (conTag c) : as') ++ "]")
     LFail m -> return ("(() => { throw new Error(" ++ show m ++ "); })()")
+
+-- A function declaration.
+defFun :: String -> [(String, LowTy)] -> LowTerm -> J ()
+defFun f xs b = do
+  (r, ss) <- block (gen b)
+  emit ("function " ++ f ++ "(" ++ intercalate ", " (map (jsName . fst) xs) ++ ") {")
+  mapM_ (emit . ("  " ++)) ss
+  emit ("  return " ++ r ++ ";")
+  emit "}"
+
+isEnumTy :: LowTy -> Bool
+isEnumTy (TData _ _ d) = not (declNewtype d) && all (null . conDeclFields) (declCons d)
+isEnumTy _ = False
 
 jsLit :: LowLit -> String
 jsLit l =
@@ -120,23 +144,23 @@ prim p as =
     ("rem", [a, b]) -> bin "%" a b
     ("subtract", [a, b]) -> bin "-" b a
     ("neg", [a]) -> "(-" ++ a ++ ")"
-    ("==", [a, b]) -> bin "===" a b
-    ("/=", [a, b]) -> bin "!==" a b
-    ("<", [a, b]) -> bin "<" a b
-    ("<=", [a, b]) -> bin "<=" a b
-    (">", [a, b]) -> bin ">" a b
-    (">=", [a, b]) -> bin ">=" a b
+    ("==", [a, b]) -> cmp "===" a b
+    ("/=", [a, b]) -> cmp "!==" a b
+    ("<", [a, b]) -> cmp "<" a b
+    ("<=", [a, b]) -> cmp "<=" a b
+    (">", [a, b]) -> cmp ">" a b
+    (">=", [a, b]) -> cmp ">=" a b
     ("d+", [a, b]) -> bin "+" a b
     ("d-", [a, b]) -> bin "-" a b
     ("d*", [a, b]) -> bin "*" a b
     ("d/", [a, b]) -> bin "/" a b
     ("dneg", [a]) -> "(-" ++ a ++ ")"
-    ("d==", [a, b]) -> bin "===" a b
-    ("d/=", [a, b]) -> bin "!==" a b
-    ("d<", [a, b]) -> bin "<" a b
-    ("d<=", [a, b]) -> bin "<=" a b
-    ("d>", [a, b]) -> bin ">" a b
-    ("d>=", [a, b]) -> bin ">=" a b
+    ("d==", [a, b]) -> cmp "===" a b
+    ("d/=", [a, b]) -> cmp "!==" a b
+    ("d<", [a, b]) -> cmp "<" a b
+    ("d<=", [a, b]) -> cmp "<=" a b
+    ("d>", [a, b]) -> cmp ">" a b
+    ("d>=", [a, b]) -> cmp ">=" a b
     ("itod", [a]) -> a
     ("dtoi", [a]) -> "Math.trunc(" ++ a ++ ")"
     ("ord", [a]) -> a
@@ -144,6 +168,7 @@ prim p as =
     ("seq", [_, b]) -> b
     _ -> "/* unknown primitive " ++ p ++ " */" ++ p ++ "(" ++ intercalate ", " as ++ ")"
   where bin o a b = "(" ++ a ++ " " ++ o ++ " " ++ b ++ ")"
+        cmp o a b = "(" ++ a ++ " " ++ o ++ " " ++ b ++ " ? 1 : 0)"    -- a Bool is its tag
 
 -- Generate a JavaScript function with the given name.
 toJS :: String -> LowProg -> String
