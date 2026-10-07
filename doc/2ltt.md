@@ -131,9 +131,14 @@ The rules, in `stageCoercion`:
   is a type constructor other than `Code`/`Low`, or a type variable
   constrained by a class with no instance a code type can match, as for
   `x * y` (with an `instance Num (Code Int)` it is meta code, and is left
-  alone).
+  alone).  A lambda checked against `Code t` is quoted too, so
+  `f :: Low (Int -> Int); f = \ n -> n + 1` is `[| \ n -> n + 1 |]`.
 * At the object level, a meta level variable, or an application with one at the
   head, whose result is `Code t` (or `Low t`) is spliced.
+* Code is not a function, so a meta level variable `c :: Code t` applied to
+  arguments has its head spliced: at the object level `c x y` is `~c x y`, at
+  the meta level it is `[| ~c x y |]`.
+* `f $ x` is treated as `f x`.
 * A definition whose stage is not known yet (no `Code` in its signature) is
   fixed to the object level when its body is a meta level application with a
   code result, checked against a type that is not code, as for `cube`.
@@ -143,8 +148,8 @@ fail, so it never changes the meaning of a program that type checks without
 it.  When the meta level reading is possible, it is used: in
 `maybe [| 0 |] f m :: Code Int` the `maybe` runs at compile time.  Write the
 quotations and splices to get the other reading.  `tests/StagedInfer.hs` has
-the examples of `Staged1` and `Low1` without annotations, and `-ddump-stage`
-shows the result.
+the examples of `Staged1` and `Low1` without annotations, `tests/LowInfer.hs`
+those of `Low2`, and `-ddump-stage` shows the result.
 
 Not inferred yet: a `case` on code (`case y of 0 -> ...` with `y :: Code Int`,
 which should become an object level `case`), and the coercion between
