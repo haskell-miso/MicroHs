@@ -311,7 +311,7 @@ dsExpr low aexpr =
               | otherwise -> encTuple $ map (dsExpr low) es
     EIf e1 e2 e3 | low -> lowIf (dsExpr low e1) (dsExpr low e2) (dsExpr low e3)
                  | otherwise -> encIf (dsExpr low e1) (dsExpr low e2) (dsExpr low e3)
-    EListish (LList es) | low -> dsExpr low $ foldr (\ e r -> EApp (EApp conCons e) r) conNil es
+    EListish (LList es) | low -> dsExpr low $ foldr (EApp . EApp conCons) conNil es
                         | otherwise -> encList $ map (dsExpr low) es
     EListish (LCompr e stmts) -> dsExpr low $ dsCompr e stmts (EListish (LList []))
     -- Staging markers, interpreted by MicroHs.Stage.

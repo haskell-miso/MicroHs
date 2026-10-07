@@ -8,7 +8,7 @@
 -- parameters, if it is a function) and returns the result.
 module Staged.Low.JS(toJS) where
 import Prelude
-import Data.Char(ord)
+import Data.Char(ord, isAsciiLower, isAsciiUpper, isDigit)
 import Data.List(intercalate)
 import Staged.Low
 
@@ -40,7 +40,7 @@ block act = J $ \ (ls, n) ->
 
 jsName :: String -> String
 jsName = concatMap esc . baseName
-  where esc c | c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' = [c]
+  where esc c | isAsciiLower c || isAsciiUpper c || isDigit c || c == '_' = [c]
               | c == '\'' = "_q"
               | otherwise = "_" ++ show (ord c) ++ "_"
 

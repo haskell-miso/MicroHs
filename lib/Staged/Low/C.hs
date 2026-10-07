@@ -14,7 +14,8 @@
 -- program is a function) and returns the result.
 module Staged.Low.C(toC) where
 import Prelude
-import Data.Char(ord)
+import Data.Char(ord, isAsciiLower, isAsciiUpper, isDigit)
+import Data.Maybe(fromMaybe)
 import Data.List(intercalate, nub)
 import Staged.Low
 
@@ -71,7 +72,7 @@ isEnum d = all (null . conDeclFields) (declCons d)
 
 cName :: String -> String
 cName = concatMap esc . baseName
-  where esc c | c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' = [c]
+  where esc c | isAsciiLower c || isAsciiUpper c || isDigit c = [c]
               | c == '_' = "_"
               | c == '(' = "T"
               | c == ')' = ""
@@ -126,7 +127,7 @@ gen env at =
         LForeign _ c _ -> return (c ++ "(" ++ intercalate ", " as' ++ ")")
         LVar g _ ->
           -- a call of a local function: pass the captured variables too
-          let caps = [ cVar v | (v, _) <- maybe [] id (lookup g (eFuns env)) ]
+          let caps = [ cVar v | (v, _) <- fromMaybe [] (lookup g (eFuns env)) ]
           in  return (cVar g ++ "(" ++ intercalate ", " (caps ++ as') ++ ")")
         _ -> return "/* bad call */0"
     LLam _ _ -> return "/* lambda */0"
