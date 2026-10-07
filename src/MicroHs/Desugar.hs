@@ -324,7 +324,7 @@ dsExpr low aexpr =
     EQuote Nothing _ -> impossiblePP aexpr
     ESplice Nothing _ -> impossiblePP aexpr
     EStaged _ _ _ e -> dsExpr low e    -- should have been resolved by the type checker
-    ECon c | low -> lowConExp aexpr
+    ECon _ | low -> lowConExp aexpr
     ECon c ->
         case getTupleConstr (conIdent c) of
           Just n ->
