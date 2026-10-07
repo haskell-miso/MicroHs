@@ -217,12 +217,29 @@ code), so only use it at the end of a generator.
 `genRec` (a recursive definition) and `genLet`, and `lowInt`, `lowDouble`,
 `lowChar`, `lowString`, `lowBool`, ... for compile time values.
 
-### Not done
+### Examples
 
-Low code still runs as combinators when it is spliced into a program; a
-backend that compiles it to C and links it (via the FFI) is the next step.
-Products of computations (the paper's join points), mutable references, and
-the paper's dependently typed stream library are not covered.
+`tests/Low1.hs` (basics), `tests/Low2.hs` (reflection, C and JavaScript
+output) and `tests/Low3.hs` (the paper's pull streams with an existential
+state type, fused into a single loop also for `zipWith`; the `MaybeT`
+binding time improvement of section 3.3; a foreign C function).
+`tests/lowerr.test` shows the error messages.
+
+### Not done, and recommendations
+
+* Low code spliced into a program still runs as combinators.  The next step
+  is a backend in the compiler that compiles a Low splice to C (e.g. with
+  `Staged.Low.C`), links it, and calls it through the FFI.
+* The paper's join points (finite products of computations) are not
+  supported; `filterP` above duplicates its continuation.  `genJoin`
+  (let insertion of a function) would be the next library function.
+* Generic sums of products (section 3.5 and the generic `concatMap`) need
+  type level computation that MicroHs does not have; write them per type.
+* Reflection gives an untyped (but type annotated) tree.  A typed
+  representation (`LowTerm a` as a GADT) would make backends safer.
+* An n-level generalization (`Code (Low a)`, or more levels) needs the stage
+  signature of the quotation types to be indexed by levels; reflection is not
+  needed for it, but makes the top level an ordinary meta program.
 
 ## Implementation
 
