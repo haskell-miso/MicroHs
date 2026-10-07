@@ -3183,7 +3183,11 @@ tcBindGrp' bs = do
   mq <- lowContext
   if isJust mq then
     return bs'
-   else do
+   else tcBindGrpGen oldState xts bs bs'
+
+-- Generalize a binding group (the second half of tcBindGrp').
+tcBindGrpGen :: TCState -> [(Ident, EType)] -> [EBind] -> [EBind] -> T [EBind]
+tcBindGrpGen oldState xts bs bs' = do
   -- The contorted nested ifs are for efficiency.
   --   first test for monomorphism restriction (cheap),
   --   next test if there are any new type variables in the return type (a little more expensive),
@@ -3258,6 +3262,7 @@ tcBindGrp' bs = do
           mapM tcBind bs                      -- and type check again
 
 -- Is this syntactically a function?
+
 isSynFcn :: EBind -> Bool
 isSynFcn (Fcn _ (Eqn (_:_) _ : _)) = True
 isSynFcn _ = False
@@ -4172,18 +4177,6 @@ nameCode = "Primitives.Code"
 
 identCode :: Ident
 identCode = mkIdentB nameCode
-
-tCode :: SLoc -> EType -> EType
-tCode loc t = tApp (tConI loc nameCode) t
-
--- Is the expected type (Code t)?
-unCode :: Expected -> T (Maybe EType)
-unCode (Infer _) = return Nothing
-unCode (Check t) = do
-  t' <- derefUVar t
-  case t' of
-    EApp (EVar c) a | c == identCode -> return (Just a)
-    _ -> return Nothing
 
 -- Stage signatures of the built in types that cannot be stage polymorphic.
 -- Code is the only type constructor that crosses stages.
