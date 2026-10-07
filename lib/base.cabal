@@ -186,6 +186,10 @@ library base
         Numeric.Natural
         Prelude
         Staged
+        Staged.Low
+        Staged.Low.C
+        Staged.Low.Internal
+        Staged.Low.JS
         System.Cmd
         System.Console.GetOpt
         System.Compress

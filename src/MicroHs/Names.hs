@@ -181,3 +181,42 @@ dictPrefixDollar = dictPrefix ++ uniqIdentSep
 -- Dictionary argument names
 adictPrefix :: String
 adictPrefix = "adict"
+
+-- Closure-free two-level type theory (Low)
+nameLow :: String
+nameLow = "Primitives.Low"
+identLow :: Ident
+identLow = mkIdentB nameLow
+
+-- The library module with the representation of low code and its types.
+lowModule :: String
+lowModule = "Staged.Low.Internal"
+
+lowIdent :: String -> Ident
+lowIdent s = mkIdentB (lowModule ++ "." ++ s)
+
+identLowRep :: Ident
+identLowRep = lowIdent "LowRep"
+
+identLowTyP :: Ident
+identLowTyP = lowIdent "lowTyP"
+
+-- Pseudo primitives marking low code; inserted by the type checker and the
+-- desugarer, interpreted by MicroHs.Stage.
+lowQuotePrim, lowTyPrim, lowLamPrim, lowLetPrim, lowLetRecPrim, lowRecBodyPrim,
+  lowConPrim, lowCasePrim, lowAltPrim, lowFailPrim, lowConsPrim :: String
+lowQuotePrim = "$lowquote"      -- $lowquote e              a low quotation
+lowTyPrim = "$lowty"            -- $lowty t e               e (a leaf) has type t
+lowLamPrim = "$lowlam"          -- $lowlam [t1..tn] (\x1..xn -> e)
+lowLetPrim = "$lowlet"          -- $lowlet t (\x -> b) e    let x :: t = e in b
+lowLetRecPrim = "$lowletrec"    -- $lowletrec n [t1..tn] (\x1..xn -> $lowrecbody e1 .. en b)
+lowRecBodyPrim = "$lowrecbody"
+lowConPrim = "$lowcon"          -- $lowcon "C" tag ncons arity newtype
+lowCasePrim = "$lowcase"        -- $lowcase x ($lowcons "C1" a1 .. "Cn" an) k alt1 .. altk dflt
+lowConsPrim = "$lowcons"
+lowAltPrim = "$lowalt"          -- $lowalt "C" tag (\x1..xn -> e)
+lowFailPrim = "$lowfail"        -- $lowfail "message"
+
+-- Markers that the type checker puts (with types as placeholders) into low code.
+lowTypeMarkers :: [String]
+lowTypeMarkers = [lowTyPrim, lowLamPrim, lowLetPrim]

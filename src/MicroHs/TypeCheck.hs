@@ -352,7 +352,11 @@ mkTCState mdlName globs mdls =
             ssDictUses = M.empty,
             ssDictChecks = [],
             ssStagedNodes = False,
-            ssLevelFixes = 0
+            ssLevelFixes = 0,
+            ssQuote = Nothing,
+            ssQuoteVars = [],
+            ssLowChecks = [],
+            ssDictQuotes = M.empty
             }
         }
 
@@ -452,12 +456,14 @@ newDict loc ctx = do
     Just (i, _) -> do
 --      traceM ("newDict reuse: " ++ show (i, ctx'))
       addDictUse i
+      addDictQuote i
       return (EVar i)
     _ -> do
       i <- newDictIdent loc
 --      traceM ("newDict: " ++ show (i, ctx', length cs))
       addConstraint i ctx'
       addDictUse i
+      addDictQuote i
       return (EVar i)
 
 addConstraint :: Ident -> EConstraint -> T ()
@@ -1596,6 +1602,9 @@ tInferDefs fcns = do
         tc (Pattern (i,_) _ _) _ = tcError (getSLoc i) "Cannot infer recursive pattern synonym types"
         tc _ _ = impossible
     zipWithM_ tc fcns xts
+  -- Quotations whose kind is still undetermined are Code quotations.
+  defaultQuoteVars
+  resetLowState
   -- Get the unsolved constraints
   ctx <- getUnsolved
   -- For each definition, quantify over the free meta variables, and include
@@ -1727,10 +1736,11 @@ tcDefValue adef =
       withLevel l $ do
         tcTypeLevelSig (getSLoc i) l t     -- the type must be consistent with the stage
         modifyStage $ \ ss -> ss{ ssStagedNodes = False }
+        resetLowState
         teqns <- tcEqns True t eqns
         checkConstraints
         sn <- gets stagedNodes
-        teqns' <- if sn then zonkStageEqns teqns else return teqns   -- resolve the stage adjustments
+        teqns' <- if sn then zonkStageEqns Nothing teqns else return teqns   -- resolve the stage adjustments
         mn <- gets moduleName
         return $ Fcn (qualIdent' mn i) teqns'
     ForImp cc ie i t -> do
@@ -1929,7 +1939,8 @@ tcExprR mt ae =
                  _ -> return t
 --             tcTrace $ "EVar: " ++ showIdent i ++ " :: " ++ showExpr t ++ " = " ++ showExpr t' ++ " mt=" ++ show mt
              useLevelE loc e t'
-             instSigma loc e t' mt
+             r <- instSigma loc e t' mt
+             lowLeaf loc i t' mt r
     EQVar e t -> do  -- already resolved, just instantiate
              useLevelE loc e t
              instSigma loc e t mt
@@ -2012,6 +2023,7 @@ tcExprR mt ae =
             -- Not LInteger, LRat, LStr
             _ -> tcLit mt loc lit
         _ -> impossible
+      >>= lowLit loc mt
     ECase a arms -> do
       -- XXX should look more like EIf
       -- The scrutinee (and the patterns and guards) can be at a different stage
@@ -2022,6 +2034,7 @@ tcExprR mt ae =
       tt <- tGetExpType mt
       same <- sameLevel ls cur
       if same then do
+        lowScrutinee loc ta
         earms <- mapM (tcArm cur cur tt ta) arms
         return (ECase ea earms)
        else do
@@ -2034,28 +2047,43 @@ tcExprR mt ae =
         ea <- tcExpr mt a
         same <- sameLevel lb cur
         if same then
-          return (ELet ebs ea)
+          lowLet loc ebs (ELet ebs ea)
          else do
           t <- tGetExpType mt
           mkStaged lb cur Nothing . ELet ebs =<< mkStaged cur lb (Just t) ea
-    EQuote e -> do
+    EQuote _ e -> do
       cur <- gets curLevel
       unifyLevel loc "a quotation" LMeta cur
-      mc <- unCode mt
-      case mc of
-        Just ta -> do
-          e' <- withLevel LObj $ tCheckExpr ta e
-          return (EQuote e')
+      -- The kind of the quotation (Code or Low) is determined by its type.
+      mh <- quoteHead mt
+      case mh of
+        Just (q, ta) -> do
+          e' <- withQuote (Just q) $ withLevel LObj $ do
+                  addLowCheck q loc LowWF "the type of a quotation" ta
+                  tCheckExpr ta e
+          return (EQuote (Just q) e')
         Nothing -> do
-          (e', ta) <- withLevel LObj $ tInferExpr e
-          munify loc mt (tCode loc ta)
-          return (EQuote e')
-    ESplice e -> do
+          q <- newQuoteVar
+          (e', ta) <- withQuote (Just q) $ withLevel LObj $ tInferExpr e
+          addLowCheck q loc LowWF "the type of a quotation" ta
+          munify loc mt (EApp q ta)
+          return (EQuote (Just q) e')
+    ESplice _ e -> do
       cur <- gets curLevel
       unifyLevel loc "a splice" LObj cur
+      -- Inside a low quotation the spliced code must be Low,
+      -- otherwise (object code, or a Code quotation) it can be Code or Low.
+      mk <- gets quoteKind
+      q <- case mk of
+             Nothing -> newQuoteVar
+             Just k -> do
+               k' <- derefUVar k
+               case k' of
+                 EVar c | c == identLow -> return k'
+                 _ -> newQuoteVar
       t <- tGetExpType mt
-      e' <- withLevel LMeta $ tCheckExpr (tCode loc t) e
-      return (ESplice e')
+      e' <- withQuote Nothing $ withLevel LMeta $ tCheckExpr (EApp q t) e
+      return (ESplice (Just q) e')
     ETuple es ->
       case unTuple mt of
         Just ts | length ts == length es -> do
@@ -2329,9 +2357,14 @@ tcExprAp mt ae args = do
                  _ -> return t
 --             tcTrace $ "exExprAp: EVar " ++ showIdent i ++ " :: " ++ showExpr t ++ " = " ++ showExpr t' ++ " mt=" ++ show mt
              useLevelE (getSLoc i) fn t'
+             mq <- lowContext
              case fn of
                EVar ii | ii == mkIdent "Data.Function.$", f:as <- args -> tcExprAp mt f as
-               _ -> tcExprApFn mt fn t' args
+               _ | isJust mq -> do
+                   -- Low code: instantiate the head now, so that its type is known and recorded.
+                   (fn', tfn) <- tInferExpr ae
+                   tcExprApFn mt fn' tfn args
+                 | otherwise -> tcExprApFn mt fn t' args
     EQVar f t ->  -- already resolved
       tcExprApFn mt f t args
     _ -> do
@@ -2701,7 +2734,18 @@ nextArg t | Just (ctx, t') <- getImplies t = AConstaint ctx t'
 tcExprLam :: HasCallStack => Expected -> SLoc -> [Eqn] -> T Expr
 tcExprLam mt loc qs = do
   t <- tGetExpType mt
-  ELam loc <$> tcEqns False t qs
+  mq <- lowContext
+  case mq of
+    Nothing -> ELam loc <$> tcEqns False t qs
+    Just q -> do
+      -- Low code: the lambda bound variables must have value types, and their types are recorded.
+      let n = case qs of
+                Eqn ps _ : _ -> length ps
+                _ -> 0
+      ts <- lamArgTypes loc n t
+      mapM_ (addLowCheck q loc LowValue "a lambda bound variable") ts
+      e <- ELam loc <$> tcEqns False t qs
+      return $ lowMark loc lowLamPrim (EListish (LList (map ETypeArg ts))) e
 
 tcEqns :: HasCallStack => Bool -> EType -> [Eqn] -> T [Eqn]
 tcEqns top t eqns = tcEqns' top t eqns
@@ -2725,7 +2769,10 @@ tcEqns' top at eqns =
     _ -> do
       let loc = getSLoc eqns
       f <- newIdent loc "fcnS"
-      (eqns', ds) <- solveAndDefault top $ mapM (tcEqn at) eqns
+      (eqns', ds) <- solveAndDefault top $ do
+        es <- mapM (tcEqn at) eqns
+        -- All uses in the definition have been seen, so the quotation kinds are known now.
+        if top then lowFinalizeEqns es else return es
 --  tcTrace $ "tcEqns done: " ++ showEBind (Fcn dummyIdent eqns')
       case ds of
         [] -> return eqns'
@@ -3128,6 +3175,12 @@ tcBindGrp' bs = do
   extVals xts                           -- Extend the symbol table with the temporary types.
                                         -- These will be removed by the 'withExtVals' in 'tcBinds'
   bs' <- mapM tcBind bs                 -- type check bindings
+  -- Low code is monomorphic: local definitions in low code are not generalized
+  -- (the uses determine the types, as with the monomorphism restriction).
+  mq <- lowContext
+  if isJust mq then
+    return bs'
+   else do
   -- The contorted nested ifs are for efficiency.
   --   first test for monomorphism restriction (cheap),
   --   next test if there are any new type variables in the return type (a little more expensive),
@@ -3139,8 +3192,9 @@ tcBindGrp' bs = do
      return bs'
    else do
     fvs <- getMetaTyVars (map snd xts)  -- all unification variables used in return type
+    qks <- quoteVarReps                 -- unification variables that are the kind of a quotation, never quantified
     let u = unique oldState             -- first of the new type variables
-        qvs = filter (>= u) fvs         -- variables introduced for the group that can be quantified
+        qvs = filter (>= u) fvs \\ qks  -- variables introduced for the group that can be quantified
 --    traceM $ "tcBindGrp: " ++ show (bs', ts', qvs)
     if null qvs then                    -- no variables to generalize
       return bs'
@@ -3767,6 +3821,7 @@ solvers =
   , ((== mkIdent nameKnownNat),    solveKnownNat)     -- KnownNat 123 constraints
   , ((== mkIdent nameKnownSymbol), solveKnownSymbol)  -- KnownSymbol "abc" constraints
   , ((== mkIdent nameCoercible),   solveCoercible)    -- Coercible a b constraints
+  , ((== identLowRep),             solveLowRep)       -- LowRep t constraints (low code type representations)
   , (const True,                   solveInst)         -- handle constraints with instances
   ]
 
@@ -3793,6 +3848,9 @@ solveMany (cns@(di, ct) : cnss) uns sol imp = do
       case mal of
         Just al | al /= LPoly -> mapM_ (unifyLevel loc ("the dictionary for " ++ showEType ct) al) uses
         _ -> return ()
+      -- Low code cannot use dictionary arguments.
+      qs <- getDictQuotes di
+      mapM_ (\ q -> lowDictCheck q loc ct) qs
       solveMany cnss uns ((ct, (di, EVar ai)) : sol) imp
     [] -> do
       msol <- solver loc iCls cts
@@ -3802,6 +3860,8 @@ solveMany (cns@(di, ct) : cnss) uns sol imp = do
         Just (de, gs, is) -> do
           -- New goals are used where the original goal was used.
           mapM_ (\ (g, _) -> addDictUses g uses) gs
+          qs <- getDictQuotes di
+          mapM_ (\ (g, _) -> addDictQuotes g qs) gs
           -- Global dictionaries are checked at the end of the module.
           case exprIdentM de of
             Just d -> addDictCheck loc d uses
@@ -4126,7 +4186,7 @@ unCode (Check t) = do
 -- All other types are stage polymorphic: meta level code is run by the runtime
 -- system, so even the types that are tied to it (IO, Ptr, ...) exist at compile time.
 primTypeLevels :: TypeLevelTable
-primTypeLevels = M.fromList [(identCode, (LMeta, [LObj]))]
+primTypeLevels = M.fromList [(identCode, (LMeta, [LObj])), (identLow, (LMeta, [LObj]))]
 
 -- The built in values (tuples, list constructors) are stage polymorphic.
 primLevels :: LevelTable
@@ -4355,89 +4415,564 @@ finalizeLevels = do
   lt' <- mapM (\ (i, l) -> (,) i <$> gen l) [ (i, l) | (i, l) <- M.toList lt, mine i, isLVar l ]
   putLevelTable (foldr (uncurry M.insert) lt lt')
   -- Reset the per module state.
-  modifyStage $ \ ss -> ss{ ssLevelSubst = IM.empty, ssLocalLevels = M.empty, ssDictUses = M.empty, ssDictChecks = [], ssCurLevel = LObj }
+  modifyStage $ \ ss -> ss{ ssLevelSubst = IM.empty, ssLocalLevels = M.empty, ssDictUses = M.empty, ssDictChecks = [], ssCurLevel = LObj,
+                            ssQuote = Nothing, ssQuoteVars = [], ssLowChecks = [], ssDictQuotes = M.empty }
  where isLVar (LVar _) = True
        isLVar _ = False
+
+---------------------------------------------------------------
+-- Closure-free two-level type theory: low code.
+--
+-- A quotation is either a Code quotation or a Low quotation; which one is
+-- determined by its type, (Code t) or (Low t).  While type checking, the kind
+-- of a quotation is a unification variable (ssQuoteVars), which gets unified
+-- with Code or Low by the uses of the quotation; a kind that is still
+-- undetermined at the end of the definition is Code.
+--
+-- Inside a quotation that may be Low, the type checker
+--  * records checks (ssLowChecks) that are done when the kind is known:
+--    lambda bound variables and case scrutinees must have value types (first
+--    order data, no functions), all other variables, and the quoted type, must
+--    have low types (a value type, or a first order function type), and class
+--    constraints must be solved by instances, not by dictionary arguments;
+--  * marks the leaves, lambdas and lets with their types ($lowty, $lowlam,
+--    $lowlet, see MicroHs.Names).  The types are placeholders (ETypeArg); when
+--    the quotation is known to be Low they are replaced by expressions that
+--    compute the run time representation of the type (the LowRep dictionary),
+--    and when it is Code the marks are removed again (lowFinalizeEqns).
+
+-- The kind of the enclosing quotation, if it may be Low.
+lowContext :: T (Maybe EType)
+lowContext = do
+  mq <- gets quoteKind
+  case mq of
+    Nothing -> return Nothing
+    Just q -> do
+      q' <- derefUVar q
+      case q' of
+        EVar c | c == identCode -> return Nothing
+        _ -> return (Just q')
+
+withQuote :: forall a . Maybe EType -> T a -> T a
+withQuote mq ta = do
+  oq <- gets quoteKind
+  modifyStage $ \ ss -> ss{ ssQuote = mq }
+  a <- ta
+  modifyStage $ \ ss -> ss{ ssQuote = oq }
+  return a
+
+-- A fresh quotation kind.
+newQuoteVar :: T EType
+newQuoteVar = do
+  q <- newUVar
+  case q of
+    EUVar n -> addQuoteVar n
+    _ -> impossible
+  return q
+
+-- The unification variables that currently represent quotation kinds.
+-- These are never generalized.
+quoteVarReps :: T [Int]
+quoteVarReps = do
+  ns <- gets quoteVars
+  ts <- mapM (derefUVar . EUVar) ns
+  return $ ns ++ [ m | EUVar m <- ts ]
+
+-- Undetermined quotation kinds are Code.
+defaultQuoteVars :: T ()
+defaultQuoteVars = do
+  ns <- gets quoteVars
+  forM_ ns $ \ n -> do
+    t <- derefUVar (EUVar n)
+    case t of
+      EUVar _ -> unify builtinLoc t (EVar identCode)
+      _ -> return ()
+
+isLowKind :: EType -> Bool
+isLowKind (EVar c) = c == identLow
+isLowKind _ = False
+
+isCodeKind :: EType -> Bool
+isCodeKind (EVar c) = c == identCode
+isCodeKind _ = False
+
+-- Is the expected type (Code t), (Low t), or (q t) for a kind variable q?
+quoteHead :: Expected -> T (Maybe (EType, EType))
+quoteHead (Infer _) = return Nothing
+quoteHead (Check t) = do
+  t' <- derefUVar t
+  case t' of
+    EApp h a ->
+      case h of
+        EVar c | c == identCode || c == identLow -> return (Just (h, a))
+        EUVar n -> do { addQuoteVar n; return (Just (h, a)) }
+        _ -> return Nothing
+    _ -> return Nothing
+
+-- Mark an expression:  $prim ann e
+lowMark :: SLoc -> String -> Expr -> Expr -> Expr
+lowMark loc p ann e = EApp (EApp (ELit loc (LPrim p)) ann) e
+
+-- A variable, or constructor, in low code: record the check of its type, and mark it with the type.
+lowLeaf :: SLoc -> Ident -> EType -> Expected -> Expr -> T Expr
+lowLeaf loc i t mt r = do
+  mq <- lowContext
+  case mq of
+    Nothing -> return r
+    Just q -> do
+      isLocal <- isJust <$> gets (M.lookup i . localLevels)
+      t' <- if isLocal then derefUVar t else tGetExpType mt      -- local variables are monomorphic
+      addLowCheck q loc LowWF ("the variable " ++ showIdent i) t'
+      return $ lowMark loc lowTyPrim (ETypeArg t') r
+
+-- A literal in low code: mark it with its type.
+lowLit :: SLoc -> Expected -> Expr -> T Expr
+lowLit loc mt r = do
+  mq <- lowContext
+  case mq of
+    Nothing -> return r
+    Just _ -> do
+      t <- tGetExpType mt
+      return $ lowMark loc lowTyPrim (ETypeArg t) r
+
+-- The scrutinee of a case in low code must have a value type.
+lowScrutinee :: SLoc -> EType -> T ()
+lowScrutinee loc t = do
+  mq <- lowContext
+  case mq of
+    Nothing -> return ()
+    Just q -> addLowCheck q loc LowValue "the scrutinee of a case" t
+
+-- A let in low code: record (and check) the types of the bound variables.
+lowLet :: SLoc -> [EBind] -> Expr -> T Expr
+lowLet loc ebs e = do
+  mq <- lowContext
+  case mq of
+    Nothing -> return e
+    Just q -> do
+      its <- fmap concat $ forM ebs $ \ b ->
+        case b of
+          Fcn i _ -> do
+            (_, t) <- tLookupV i
+            addLowCheck q (getSLoc i) LowWF ("the variable " ++ showIdent i) t
+            return [ETuple [ELit loc (LStr (unIdent i)), ETypeArg t]]
+          _ -> return []
+      return $ lowMark loc lowLetPrim (EListish (LList its)) e
+
+-- A constraint in low code was solved by a dictionary argument.
+lowDictCheck :: EType -> SLoc -> EConstraint -> T ()
+lowDictCheck q loc ct = do
+  q' <- derefUVar q
+  case q' of
+    EVar c | c == identCode -> return ()
+           | c == identLow -> lowCheck loc LowDict "" ct
+    _ -> addLowCheck q' loc LowDict "" ct
+
+-- The types of the first n arguments of a function type.
+lamArgTypes :: SLoc -> Int -> EType -> T [EType]
+lamArgTypes _ 0 _ = return []
+lamArgTypes loc n at = do
+  t <- derefUVar at
+  case t of
+    EForall{} -> return []
+    _ -> do
+      (a, r) <- unArrow loc t
+      as <- lamArgTypes loc (n - 1) r
+      return (a : as)
+
+-- At the end of a top level definition all the quotation kinds are known.
+-- Undetermined kinds are Code.  Do the recorded checks of low code, and
+-- replace the type placeholders in Low quotations by type representation
+-- expressions (or remove the marks in Code quotations).
+lowFinalizeEqns :: [Eqn] -> T [Eqn]
+lowFinalizeEqns eqns = do
+  defaultQuoteVars
+  cks <- gets lowChecks
+  resetLowState
+  forM_ (reverse cks) $ \ (LowCheck q loc ck what t) -> do
+    q' <- derefUVar q
+    when (isLowKind q') $ lowCheck loc ck what t
+  mapM (lowZonkEqn Nothing) eqns
+
+-- The first argument is the kind of the enclosing quotation (Nothing in object code).
+lowZonkEqns :: Maybe EType -> [Eqn] -> T [Eqn]
+lowZonkEqns k = mapM (lowZonkEqn k)
+
+lowZonkEqn :: Maybe EType -> Eqn -> T Eqn
+lowZonkEqn k (Eqn ps alts) = Eqn <$> mapM (lowZonk k) ps <*> lowZonkAlts k alts
+
+lowZonkAlts :: Maybe EType -> EAlts -> T EAlts
+lowZonkAlts k (EAlts alts bs) = EAlts <$> mapM alt alts <*> mapM (lowZonkBind k) bs
+  where alt (ss, e) = (,) <$> mapM (lowZonkStmt k) ss <*> lowZonk k e
+
+lowZonkBind :: Maybe EType -> EBind -> T EBind
+lowZonkBind k (Fcn i eqns) = Fcn i <$> lowZonkEqns k eqns
+lowZonkBind k (PatBind p e) = PatBind <$> lowZonk k p <*> lowZonk k e
+lowZonkBind _ b = return b
+
+lowZonkStmt :: Maybe EType -> EStmt -> T EStmt
+lowZonkStmt k (SBind p e) = SBind <$> lowZonk k p <*> lowZonk k e
+lowZonkStmt k (SThen e) = SThen <$> lowZonk k e
+lowZonkStmt k (SLet bs) = SLet <$> mapM (lowZonkBind k) bs
+lowZonkStmt k (SRec ss) = SRec <$> mapM (lowZonkStmt k) ss
+
+lowZonk :: Maybe EType -> Expr -> T Expr
+lowZonk k ae =
+  case ae of
+    EApp (EApp m@(ELit mloc (LPrim p)) ann) e | p `elem` lowTypeMarkers -> do
+      e' <- lowZonk k e
+      case k of
+        Just q | isLowKind q -> do
+          ann' <- lowAnn mloc ann
+          return (EApp (EApp m ann') e')
+        _ -> return e'
+    EVar _ -> return ae
+    EApp f a -> EApp <$> lowZonk k f <*> lowZonk k a
+    EOper e ies -> EOper <$> lowZonk k e <*> mapM (\ (i, e') -> (,) i <$> lowZonk k e') ies
+    ELam l qs -> ELam l <$> lowZonkEqns k qs
+    ELit _ _ -> return ae
+    EQLit _ _ _ -> return ae
+    ECase e as -> ECase <$> lowZonk k e <*> mapM (\ (p, alts) -> (,) <$> lowZonk k p <*> lowZonkAlts k alts) as
+    ELet bs e -> ELet <$> mapM (lowZonkBind k) bs <*> lowZonk k e
+    ETuple es -> ETuple <$> mapM (lowZonk k) es
+    EParen e -> EParen <$> lowZonk k e
+    EListish (LList es) -> EListish . LList <$> mapM (lowZonk k) es
+    EListish (LCompr e ss) -> (\ e' ss' -> EListish (LCompr e' ss')) <$> lowZonk k e <*> mapM (lowZonkStmt k) ss
+    EListish _ -> return ae
+    EDo mn ss -> EDo mn <$> mapM (lowZonkStmt k) ss
+    ESectL e i -> (`ESectL` i) <$> lowZonk k e
+    ESectR i e -> ESectR i <$> lowZonk k e
+    EIf e1 e2 e3 -> EIf <$> lowZonk k e1 <*> lowZonk k e2 <*> lowZonk k e3
+    EMultiIf alts -> EMultiIf <$> lowZonkAlts k alts
+    ESign e t -> (`ESign` t) <$> lowZonk k e
+    ENegApp e -> ENegApp <$> lowZonk k e
+    EUpdate e fs -> (`EUpdate` fs) <$> lowZonk k e
+    ESelect _ -> return ae
+    ETypeArg _ -> return ae
+    EQuote (Just q) e -> do
+      q' <- derefUVar q
+      let loc = getSLoc e
+      unless (isLowKind q' || isCodeKind q') $
+        tcError loc $ "a quotation must have type Code or Low, not " ++ showEType (EApp q' (EVar dummyIdent))
+      EQuote (Just q') <$> lowZonk (Just q') e
+    EQuote Nothing _ -> impossible
+    ESplice (Just q) e -> do
+      q' <- derefUVar q
+      let loc = getSLoc e
+          inLow = case k of
+                    Just kk -> isLowKind kk
+                    Nothing -> False
+      q'' <- case q' of
+               EUVar _ -> do
+                 -- An undetermined kind of a splice: Low inside a Low quotation, otherwise Code.
+                 let d = EVar (if inLow then identLow else identCode)
+                 unify loc q' d
+                 return d
+               _ -> return q'
+      when (inLow && not (isLowKind q'')) $
+        tcError loc $ "only Low code can be spliced into low code"
+      unless (isLowKind q'' || isCodeKind q'') $
+        tcError loc $ "a splice must have type Code or Low, not " ++ showEType (EApp q'' (EVar dummyIdent))
+      ESplice (Just q'') <$> lowZonk Nothing e
+    ESplice Nothing _ -> impossible
+    EStaged l1 l2 mt e -> EStaged l1 l2 mt <$> lowZonk k e
+    EAt i e -> EAt i <$> lowZonk k e
+    EViewPat e p -> EViewPat <$> lowZonk k e <*> lowZonk k p
+    ELazy b p -> ELazy b <$> lowZonk k p
+    EOr ps -> EOr <$> mapM (lowZonk k) ps
+    EForall _ _ _ -> return ae
+    EUVar _ -> return ae
+    EQVar _ _ -> return ae
+    ECon _ -> return ae
+
+-- Replace the type placeholders in an annotation by type representation expressions.
+lowAnn :: SLoc -> Expr -> T Expr
+lowAnn loc ae =
+  case ae of
+    ETypeArg t -> lowTyExpr loc t
+    EListish (LList es) -> EListish . LList <$> mapM (lowAnn loc) es
+    ETuple es -> ETuple <$> mapM (lowAnn loc) es
+    _ -> return ae
+
+-- An expression that computes the representation (LowTy) of a type:
+-- the lowTyP method of the LowRep dictionary of the type.
+lowTyExpr :: SLoc -> EType -> T Expr
+lowTyExpr loc t = do
+  t' <- derefUVar t
+  d <- newDict loc (EApp (EVar identLowRep) t')
+  return $ EApp (EVar identLowTyP) d
+
+lowCheck :: SLoc -> LowChk -> String -> EType -> T ()
+lowCheck loc ck what t = do
+  t' <- derefUVar t
+  case ck of
+    LowValue -> do
+      ok <- isValueTy [] t'
+      unless ok $ tcError loc $ "low code: " ++ what ++ " must have a value type (first order data), not " ++ showEType t'
+    LowWF -> do
+      ok <- isLowTy t'
+      unless ok $ tcError loc $ "low code: " ++ what ++ " must have a value type or a first order function type, not " ++ showEType t'
+    LowDict ->
+      tcError loc $ "low code: the constraint " ++ showEType t' ++ " must be solved by an instance; low code cannot be overloaded"
+
+-- The primitive value types.
+lowPrimTyCons :: [(Ident, String)]
+lowPrimTyCons =
+  [ (identInt, "TInt"), (identWord, "TWord"), (identInt64, "TInt64"), (identWord64, "TWord64")
+  , (identDouble, "TDouble"), (identFloat, "TFloat"), (identChar, "TChar") ]
+
+-- Type variables are unqualified (type constructors are qualified after type checking).
+isQualifiedIdent :: Ident -> Bool
+isQualifiedIdent i = unQualString (unIdent i) /= unIdent i
+
+-- The constructors of a data type: the type parameters, the constructors, and whether it is a newtype.
+dataDecl :: Ident -> T (Maybe ([IdKind], [Constr], Bool))
+dataDecl c = do
+  dt <- gets dataTable
+  return $
+    case M.lookup c dt of
+      Just (Data (_, vks) cs _) -> Just (vks, cs, False)
+      Just (Newtype (_, vks) cn _) -> Just (vks, [cn], True)
+      _ -> Nothing
+
+constrFieldTypes :: Constr -> [EType]
+constrFieldTypes (Constr _ _ _ _ ets) = either (map snd) (map (snd . snd)) ets
+
+-- A value type: a primitive numeric or character type, a type variable, or a data
+-- type (without existentials) whose fields are value types.
+isValueTy :: [Ident] -> EType -> T Bool
+isValueTy seen at = do
+  t <- derefUVar at
+  case t of
+    EUVar _ -> return True
+    EForall{} -> return False
+    _ ->
+      case getAppM t of
+        Nothing -> return False
+        Just (c, args)
+          | isJust (lookup c lowPrimTyCons) -> return (null args)
+          | c == identArrow || c == identImplies || c == identCode || c == identLow -> return False
+          | c `elem` seen -> return True
+          | otherwise -> do
+            md <- dataDecl c
+            case md of
+              Just (vks, cs, _) -> do
+                let sub = subst (zip (map idKindIdent vks) args)
+                    conOk (Constr evks ctx _ _ _) | not (null evks && null ctx) = return False
+                    conOk con = do
+                      fts <- mapM (expandSyn . sub) (constrFieldTypes con)
+                      and <$> mapM (isValueTy (c : seen)) fts
+                and <$> mapM conOk cs
+              Nothing -> return (null args && not (isQualifiedIdent c))    -- a type variable
+
+-- A low type: a value type or a first order function type.
+isLowTy :: EType -> T Bool
+isLowTy at = do
+  t <- derefUVar at
+  v <- isValueTy [] t
+  if v then return True else
+    case t of
+      EForall{} -> return False
+      _ -> case getArrows t of
+             ([], _) -> return False
+             (as, r) -> and <$> mapM (isValueTy []) (as ++ [r])
+
+-- Solve (LowRep t) by constructing the representation of the type t.
+solveLowRep :: SolveOne
+solveLowRep loc iCls [t] = do
+  mr <- lowRepExpr loc t
+  case mr of
+    Nothing -> solveInst loc iCls [t]     -- a type variable: look for a dictionary argument
+    Just (e, goals) ->
+      return $ Just (EApp (EVar $ mkClassConstructor iCls) (EApp (EVar (lowIdent "LowTyP")) e), goals, [])
+solveLowRep loc iCls ts = solveInst loc iCls ts
+
+-- An expression computing the LowTy of a type, with new goals for the LowRep
+-- of the type arguments.  Nothing for type variables and unification variables.
+lowRepExpr :: SLoc -> EType -> T (Maybe (Expr, [Goal]))
+lowRepExpr loc at = do
+  t <- derefUVar at
+  let con s = EVar (lowIdent s)
+      str s = ELit loc (LStr s)
+      other = return (Just (EApp (con "TOther") (str (showEType t)), []))
+      sub ts = do
+        ds <- mapM (const (newDictIdent loc)) ts
+        let goals = [ (d, EApp (EVar identLowRep) t') | (d, t') <- zip ds ts ]
+            es = [ EApp (EVar identLowTyP) (EVar d) | d <- ds ]
+        return (es, goals)
+  case t of
+    EUVar _ -> return Nothing
+    EForall{} -> other
+    _ ->
+      case getAppM t of
+        Just (c, args)
+          | Just s <- lookup c lowPrimTyCons, null args -> return (Just (con s, []))
+          | c == identArrow -> do
+              let (as, r) = getArrows t
+              (es, goals) <- sub (as ++ [r])
+              return (Just (EApp (EApp (con "TFun") (EListish (LList (init es)))) (last es), goals))
+          | otherwise -> do
+              md <- dataDecl c
+              case md of
+                Just _ -> do
+                  (es, goals) <- sub args
+                  decl <- lowDeclExpr loc c
+                  return (Just (eApps (con "TData") [str (unIdent c), EListish (LList es), decl], goals))
+                Nothing
+                  | null args && not (isQualifiedIdent c) -> return Nothing     -- a type variable
+                  | otherwise -> other
+        Nothing -> other
+
+-- The declaration (LowDecl) of a data type, as an expression.
+-- All the data types reachable through the fields are let bound, so that
+-- recursive declarations can be represented:  let d1 = ...; d2 = ... in d1
+lowDeclExpr :: SLoc -> Ident -> T Expr
+lowDeclExpr loc c0 = do
+  dt <- gets dataTable
+  let con s = EVar (lowIdent s)
+      str s = ELit loc (LStr s)
+      int i = ELit loc (LInt i)
+      decl c = case M.lookup c dt of
+                 Just (Data (_, vks) cs _) -> Just (vks, cs, False)
+                 Just (Newtype (_, vks) cn _) -> Just (vks, [cn], True)
+                 _ -> Nothing
+      isData c = isJust (decl c)
+      -- The constructor names in the data table are unqualified.
+      conName c ci | isQualifiedIdent ci || not (isQualifiedIdent c) = ci
+                   | otherwise = qualIdent (qualOf c) ci
+      tyCons t = case getAppM t of
+                   Just (c, args) -> [ c | isData c ] ++ concatMap tyCons args
+                   Nothing -> case t of
+                                EApp f a -> tyCons f ++ tyCons a
+                                _ -> []
+      fieldTypes cs = concatMap constrFieldTypes cs
+  -- The data types reachable from c0.
+  let reach done [] = return done
+      reach done (c : cs) | c `elem` done = reach done cs
+                          | otherwise =
+        case decl c of
+          Just (_, cons, _) -> do
+            fts <- mapM expandSyn (fieldTypes cons)
+            reach (c : done) (nub (concatMap tyCons fts) ++ cs)
+          Nothing -> reach done cs
+  cs0 <- reach [] [c0]
+  vars <- mapM (\ c -> (,) c <$> newIdent loc "lowdecl") cs0
+  let var c = fromMaybe impossible (lookup c vars)
+      -- the representation of a field type, with the type parameters in env
+      fty env t =
+        case t of
+          EForall{} -> other
+          _ -> case getAppM t of
+                 Just (c, args)
+                   | Just i <- lookup c env, null args -> EApp (con "TParam") (int i)
+                   | Just s <- lookup c lowPrimTyCons, null args -> con s
+                   | c == identArrow -> let (as, r) = getArrows t
+                                        in EApp (EApp (con "TFun") (EListish (LList (map (fty env) as)))) (fty env r)
+                   | isData c -> eApps (con "TData") [str (unIdent c), EListish (LList (map (fty env) args)), EVar (var c)]
+                 _ -> other
+        where other = EApp (con "TOther") (str (showEType t))
+      mkDecl c =
+        case decl c of
+          Just (vks, cons, isNew) -> do
+            let env = zip (map idKindIdent vks) [0 :: Int ..]
+                mkCon tag ci fts =
+                  eApps (con "LowConDecl") [str (unIdent (conName c ci)), int tag, EListish (LList (map (fty env) fts))]
+            conEs <- forM (zip [0..] cons) $ \ (tag, cn@(Constr _ _ ci _ _)) -> do
+              fts <- mapM expandSyn (constrFieldTypes cn)
+              return (mkCon tag ci fts)
+            let bool b = EVar (mkIdent (if b then "Data.Bool_Type.True" else "Data.Bool_Type.False"))
+                ds = eApps (con "LowDecl") [str (unIdent c), int (length vks), bool isNew, EListish (LList conEs)]
+            return $ Fcn (var c) (eEqns [] ds)
+          Nothing -> impossible
+  binds <- mapM mkDecl cs0
+  return $ ELet binds (EVar (var c0))
+
 
 -- Resolve the EStaged markers inserted for let/case/if.
 --   EStaged from to _ e
 -- means that e is at stage 'from', but is used at stage 'to'.
-zonkStageEqns :: [Eqn] -> T [Eqn]
-zonkStageEqns = mapM zonkStageEqn
+-- The first argument is the kind (Code or Low) of the enclosing quotation,
+-- Nothing in object code; quotations and splices created here get that kind.
+zonkStageEqns :: Maybe EType -> [Eqn] -> T [Eqn]
+zonkStageEqns k = mapM (zonkStageEqn k)
 
-zonkStageEqn :: Eqn -> T Eqn
-zonkStageEqn (Eqn ps alts) = Eqn <$> mapM zonkStage ps <*> zonkStageAlts alts
+zonkStageEqn :: Maybe EType -> Eqn -> T Eqn
+zonkStageEqn k (Eqn ps alts) = Eqn <$> mapM (zonkStage k) ps <*> zonkStageAlts k alts
 
-zonkStageAlts :: EAlts -> T EAlts
-zonkStageAlts (EAlts alts bs) = EAlts <$> mapM alt alts <*> mapM zonkStageBind bs
-  where alt (ss, e) = (,) <$> mapM zonkStageStmt ss <*> zonkStage e
+zonkStageAlts :: Maybe EType -> EAlts -> T EAlts
+zonkStageAlts k (EAlts alts bs) = EAlts <$> mapM alt alts <*> mapM (zonkStageBind k) bs
+  where alt (ss, e) = (,) <$> mapM (zonkStageStmt k) ss <*> zonkStage k e
 
-zonkStageBind :: EBind -> T EBind
-zonkStageBind (Fcn i eqns) = Fcn i <$> zonkStageEqns eqns
-zonkStageBind (PatBind p e) = PatBind <$> zonkStage p <*> zonkStage e
-zonkStageBind b = return b
+zonkStageBind :: Maybe EType -> EBind -> T EBind
+zonkStageBind k (Fcn i eqns) = Fcn i <$> zonkStageEqns k eqns
+zonkStageBind k (PatBind p e) = PatBind <$> zonkStage k p <*> zonkStage k e
+zonkStageBind _ b = return b
 
-zonkStageStmt :: EStmt -> T EStmt
-zonkStageStmt (SBind p e) = SBind <$> zonkStage p <*> zonkStage e
-zonkStageStmt (SThen e) = SThen <$> zonkStage e
-zonkStageStmt (SLet bs) = SLet <$> mapM zonkStageBind bs
-zonkStageStmt (SRec ss) = SRec <$> mapM zonkStageStmt ss
+zonkStageStmt :: Maybe EType -> EStmt -> T EStmt
+zonkStageStmt k (SBind p e) = SBind <$> zonkStage k p <*> zonkStage k e
+zonkStageStmt k (SThen e) = SThen <$> zonkStage k e
+zonkStageStmt k (SLet bs) = SLet <$> mapM (zonkStageBind k) bs
+zonkStageStmt k (SRec ss) = SRec <$> mapM (zonkStageStmt k) ss
 
-zonkStage :: Expr -> T Expr
-zonkStage ae =
+zonkStage :: Maybe EType -> Expr -> T Expr
+zonkStage k ae =
   case ae of
     EVar _ -> return ae
-    EApp f a -> EApp <$> zonkStage f <*> zonkStage a
-    EOper e ies -> EOper <$> zonkStage e <*> mapM (\ (i, e') -> (,) i <$> zonkStage e') ies
-    ELam l qs -> ELam l <$> zonkStageEqns qs
+    EApp f a -> EApp <$> zonkStage k f <*> zonkStage k a
+    EOper e ies -> EOper <$> zonkStage k e <*> mapM (\ (i, e') -> (,) i <$> zonkStage k e') ies
+    ELam l qs -> ELam l <$> zonkStageEqns k qs
     ELit _ _ -> return ae
     EQLit _ _ _ -> return ae
-    ECase e as -> ECase <$> zonkStage e <*> mapM (\ (p, alts) -> (,) <$> zonkStage p <*> zonkStageAlts alts) as
-    ELet bs e -> ELet <$> mapM zonkStageBind bs <*> zonkStage e
-    ETuple es -> ETuple <$> mapM zonkStage es
-    EParen e -> EParen <$> zonkStage e
-    EListish (LList es) -> EListish . LList <$> mapM zonkStage es
-    EListish (LCompr e ss) -> (\ e' ss' -> EListish (LCompr e' ss')) <$> zonkStage e <*> mapM zonkStageStmt ss
+    ECase e as -> ECase <$> zonkStage k e <*> mapM (\ (p, alts) -> (,) <$> zonkStage k p <*> zonkStageAlts k alts) as
+    ELet bs e -> ELet <$> mapM (zonkStageBind k) bs <*> zonkStage k e
+    ETuple es -> ETuple <$> mapM (zonkStage k) es
+    EParen e -> EParen <$> zonkStage k e
+    EListish (LList es) -> EListish . LList <$> mapM (zonkStage k) es
+    EListish (LCompr e ss) -> (\ e' ss' -> EListish (LCompr e' ss')) <$> zonkStage k e <*> mapM (zonkStageStmt k) ss
     EListish _ -> return ae
-    EDo mn ss -> EDo mn <$> mapM zonkStageStmt ss
-    ESectL e i -> (`ESectL` i) <$> zonkStage e
-    ESectR i e -> ESectR i <$> zonkStage e
-    EIf e1 e2 e3 -> EIf <$> zonkStage e1 <*> zonkStage e2 <*> zonkStage e3
-    EMultiIf alts -> EMultiIf <$> zonkStageAlts alts
-    ESign e t -> (`ESign` t) <$> zonkStage e
-    ENegApp e -> ENegApp <$> zonkStage e
-    EUpdate e fs -> (`EUpdate` fs) <$> zonkStage e
+    EDo mn ss -> EDo mn <$> mapM (zonkStageStmt k) ss
+    ESectL e i -> (`ESectL` i) <$> zonkStage k e
+    ESectR i e -> ESectR i <$> zonkStage k e
+    EIf e1 e2 e3 -> EIf <$> zonkStage k e1 <*> zonkStage k e2 <*> zonkStage k e3
+    EMultiIf alts -> EMultiIf <$> zonkStageAlts k alts
+    ESign e t -> (`ESign` t) <$> zonkStage k e
+    ENegApp e -> ENegApp <$> zonkStage k e
+    EUpdate e fs -> (`EUpdate` fs) <$> zonkStage k e
     ESelect _ -> return ae
     ETypeArg _ -> return ae
-    EQuote e -> EQuote <$> zonkStage e
-    ESplice e -> ESplice <$> zonkStage e
+    EQuote q e -> EQuote q <$> zonkStage q e
+    ESplice q e -> ESplice q <$> zonkStage Nothing e
     EStaged l1 l2 mt e -> do
-      e' <- zonkStage e
+      e' <- zonkStage k e
       a <- derefLevel l1
       b <- derefLevel l2
       let loc = getSLoc e
+          kind = fromMaybe (EVar identCode) k       -- object code is like a Code quotation
+          kindIdent = case kind of
+                        EVar c -> c
+                        _ -> identCode
       case (a, b) of
         _ | a == b -> return e'
         (LVar _, _) -> do { _ <- unifyLevelM a b; return e' }   -- unconstrained: pick the stage of the context
         (_, LVar _) -> do { _ <- unifyLevelM a b; return e' }
         (LMeta, LObj) -> do
           -- A meta level expression used at object level: splice it.
-          -- If this is the body of a binding/case we know its type, which must be Code.
+          -- If this is the body of a binding/case we know its type, which must be Code (or Low in low code).
           case mt of
             Nothing -> return ()
             Just t -> do
               t' <- derefUVar t
               case t' of
-                EApp (EVar c) _ | c == identCode -> return ()
-                EUVar _ -> do { b' <- newUVar; unify loc t' (tCode loc b') }
+                EApp (EVar c) _ | c == kindIdent -> return ()
+                EUVar _ -> do { b' <- newUVar; unify loc t' (EApp kind b') }
                 _ -> tcError loc $ "object level binding in meta level expression of non-code type " ++ showEType t'
-          return (ESplice e')
-        (LObj, LMeta) -> return (EQuote e')
+          return (ESplice (Just kind) e')
+        (LObj, LMeta) -> return (EQuote (Just kind) e')
         _ -> impossible
-    EAt i e -> EAt i <$> zonkStage e
-    EViewPat e p -> EViewPat <$> zonkStage e <*> zonkStage p
-    ELazy b p -> ELazy b <$> zonkStage p
-    EOr ps -> EOr <$> mapM zonkStage ps
+    EAt i e -> EAt i <$> zonkStage k e
+    EViewPat e p -> EViewPat <$> zonkStage k e <*> zonkStage k p
+    ELazy b p -> ELazy b <$> zonkStage k p
+    EOr ps -> EOr <$> mapM (zonkStage k) ps
     EForall _ _ _ -> return ae
     EUVar _ -> return ae
     EQVar _ _ -> return ae

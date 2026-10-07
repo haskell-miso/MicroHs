@@ -30,6 +30,9 @@ class a ~ b | a -> b, b -> a
 data AnyType deriving ()
 -- Two-level type theory: (Code a) is the meta level type of object level code of type a.
 data Code a deriving ()
+-- Closure-free two-level type theory: (Low a) is the meta level type of first order,
+-- strict, closure free object level code of type a.
+data Low a deriving ()
 --data Char
 newtype Char = Char Word deriving ()
 data Int deriving ()

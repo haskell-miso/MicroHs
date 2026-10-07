@@ -185,6 +185,9 @@ stagedtest:
 	$(TMHS) Staged4    && $(EVAL) > Staged4.out    && diff Staged4.ref Staged4.out
 	$(TMHS) StagedInteger && $(EVAL) > StagedInteger.out && diff StagedInteger.ref StagedInteger.out
 	sh errtester.sh $(MHS) < stagederr.test
+	$(TMHS) Low1       && $(EVAL) > Low1.out       && diff Low1.ref Low1.out
+	$(TMHS) Low2       && $(EVAL) > Low2.out       && diff Low2.ref Low2.out
+	sh errtester.sh $(MHS) < lowerr.test
 	$(TMHS) --stdin < istaged.in | sed -e '1,/^>/d' > istaged.out && diff istaged.ref istaged.out
 
 interactivetest:

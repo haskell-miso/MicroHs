@@ -6,6 +6,7 @@ module MicroHs.Desugar(
   LDef, showLDefs,
   encodeInteger,
   quotePrim, splicePrim, hasSplice,
+  lowUnit,
   ) where
 import qualified Prelude(); import MHSPrelude
 import Data.Char
@@ -36,6 +37,15 @@ quotePrim = "$quote"
 splicePrim :: String
 splicePrim = "$splice"
 
+-- Desugaring mode: inside a Low quotation (closure-free code) the desugarer
+-- keeps the structure of the code: case expressions, constructors, lets and
+-- recursive lets are marked with pseudo primitives (see MicroHs.Names), and
+-- let bound expressions are never inlined.  MicroHs.Stage turns the marked
+-- code into the representation of low code.
+type Low = Bool
+-- Type annotations of let bound variables, from the type checker.
+type Anns = [(Ident, Exp)]
+
 desugar :: Flags -> TModule [EDef] -> TModule [LDef]
 desugar flags tm =
   setBindings tm $ map lazier $ checkDup $ concat $ zipWith (dsDef flags (tModuleName tm)) [1..] (tBindingsOf tm)
@@ -53,7 +63,7 @@ dsDef flags mn ffiNo adef =
           in (qualIdent mn c, encConstr i n ss)
       in  zipWith dsConstr [0::Int ..] cs
     Newtype _ (Constr _ _ c _ _) _ -> [ (qualIdent mn c, Lit (LPrim "I")) ]
-    Fcn f eqns -> [(f, wrapTick (useTicks flags) f $ dsEqns (getSLoc f) eqns)]
+    Fcn f eqns -> [(f, wrapTick (useTicks flags) f $ dsEqns False (getSLoc f) eqns)]
     ForImp cc ie i t -> [(i, ccall t $ Lit $ mkForImp mn ffiNo cc ie i t)]
     -- Foreign exports don't fit very well into the desugared syntax.
     -- We represent
@@ -64,7 +74,7 @@ dsDef flags mn ffiNo adef =
     -- (currently just a newtype of an EType).
     ForExp cc (Just s) e t ->  [(mkIdentSLoc l s, mkForExp (cc == Cjavascript) e' (CType t))]
       where l = getSLoc e
-            e' = dsExpr e
+            e' = dsExpr False e
     Class ctx (c, _) _ bs ->
       let f = mkIdent "$f"
           meths :: [Ident]
@@ -105,22 +115,22 @@ wrapTick True  i ee = wrap 0 ee
                        _ -> e
 -}
 
-dsBind :: Ident -> EBind -> [LDef]
-dsBind v abind =
+dsBind :: Low -> Anns -> Ident -> EBind -> [LDef]
+dsBind low anns v abind =
   case abind of
-    Fcn f eqns -> [(f, dsEqns (getSLoc f) eqns)]
-    PatBind p e -> dsPatBind v p e
+    Fcn f eqns -> [(f, dsEqns low (getSLoc f) eqns)]
+    PatBind p e -> dsPatBind low anns v p e
     _ -> []
 
 -- Desugaring ~p in case introduces PatBind, so we need to get rid of it again.
-dsPatBind :: Ident -> EPat -> Expr -> [LDef]
-dsPatBind v p e =
-  let de = (v, dsExpr e)
-      ds = [ (i, dsExpr (ECase (EVar v) [(p, oneAlt $ EVar i)])) | i <- patVars p ]
+dsPatBind :: Low -> Anns -> Ident -> EPat -> Expr -> [LDef]
+dsPatBind low _ v p e =
+  let de = (v, dsExpr low e)
+      ds = [ (i, dsExpr low (ECase (EVar v) [(p, oneAlt $ EVar i)])) | i <- patVars p ]
   in  de : ds
 
-dsEqns :: SLoc -> [Eqn] -> Exp
-dsEqns loc eqns =
+dsEqns :: Low -> SLoc -> [Eqn] -> Exp
+dsEqns low loc eqns =
   case eqns of
     Eqn aps _ : _ ->
       let
@@ -128,22 +138,37 @@ dsEqns loc eqns =
         xs = take (length aps) $ newVars "$q" vs
         mkArm (Eqn ps alts) =
           let ps' = map dsPat ps
-          in  (ps', id, dsAlts alts)
-        ex = dsCaseExp loc (vs ++ xs) (map Var xs) (map mkArm eqns)
+          in  (ps', id, dsAlts low alts)
+        ex = dsCaseExp low loc (vs ++ xs) (map Var xs) (map mkArm eqns)
       in foldr Lam ex xs
-    _ -> eMatchErr loc
+    _ -> eMatchErr low loc
 
-dsAlts :: EAlts -> (Exp -> Exp)
-dsAlts (EAlts alts bs) = dsBinds bs . dsAltsL alts
+dsAlts :: Low -> EAlts -> (Exp -> Exp)
+dsAlts low (EAlts alts bs) = dsBinds low [] bs . dsAltsL low alts
 
-dsAltsL :: [EAlt] -> (Exp -> Exp)
-dsAltsL []                 dflt = dflt
-dsAltsL [([], e)]             _ = dsExpr e  -- fast special case
-dsAltsL ((ss, rhs) : alts) dflt =
+dsAltsL :: Low -> [EAlt] -> (Exp -> Exp)
+dsAltsL _   []                 dflt = dflt
+dsAltsL low [([], e)]             _ = dsExpr low e  -- fast special case
+dsAltsL low ((ss, rhs) : alts) dflt =
   let
-    erest = dsAltsL alts dflt
+    erest = dsAltsL low alts dflt
     x = newVar (allVarsExp erest)
-  in eLet x erest (dsExpr $ dsAlt (EVar x) ss rhs)
+  in if low then
+       -- In low code the rest of the alternatives is a join point: a function.
+       lowJoin x erest (dsExpr low $ dsAlt (EApp (EVar x) lowUnitExpr) ss rhs)
+     else
+       eLet False x erest (dsExpr low $ dsAlt (EVar x) ss rhs)
+
+lowUnitExpr :: Expr
+lowUnitExpr = tupleCon noSLoc 0
+
+-- Bind a join point in low code:  let x = \ _ -> e in body
+-- The strict semantics of low code must not evaluate e unless it is used.
+lowJoin :: Ident -> Exp -> Exp -> Exp
+lowJoin x e body =
+  let u = newVar (allVarsExp e)
+      lam = App (App (Lit (LPrim lowLamPrim)) (encList [Var (lowIdent "tUnit")])) (Lam u e)
+  in  App (Lam x body) lam
 
 dsAlt :: Expr -> [EStmt] -> Expr -> Expr
 dsAlt _ [] rhs = rhs
@@ -153,8 +178,8 @@ dsAlt dflt (SThen e   : ss) rhs = EIf e (dsAlt dflt ss rhs) dflt
 dsAlt dflt (SLet bs   : ss) rhs = ELet bs (dsAlt dflt ss rhs)
 dsAlt _    (SRec _ : _) _ = impossible
 
-dsBinds :: [EBind] -> Exp -> Exp
-dsBinds [] ret = ret
+dsBinds :: Low -> Anns -> [EBind] -> Exp -> Exp
+dsBinds _ _ [] ret = ret
 {-
 dsBinds ads@(PatBind (ELazy False p) e : ds) ret =
   -- Turn a strict let/where into a case.
@@ -163,36 +188,46 @@ dsBinds ads@(PatBind (ELazy False p) e : ds) ret =
       used = allVarsExp ret ++ allVarsExpr (ELet ads (ETuple []))
   in  dsCaseExp (getSLoc p) used [dsExpr e] [([dsPat p], const rest)]
 -}
-dsBinds ads ret =
+dsBinds low anns ads ret =
   let
     avs = concatMap allVarsBind ads
     pvs = newVars "$p" avs
     mvs = newVars "$m" avs
-    ds = concat $ zipWith dsBind pvs ads
+    ds = concat $ zipWith (dsBind low anns) pvs ads
     node ie@(i, e) = (ie, i, freeVars e)
     gr = map node $ checkDup ds
     asccs = stronglyConnComp gr
     loop _ [] = ret
     loop vs (AcyclicSCC (i, e) : sccs) =
-      letE i e $ loop vs sccs
+      letE low anns i e $ loop vs sccs
     loop vs (CyclicSCC [(i, e)] : sccs) =
-      case lazier (i, e) of
+      case if low then (i, e) else lazier (i, e) of
         (i', e')
-          | i' `elem` freeVars e' -> letRecE i' e' $ loop vs sccs
-          | otherwise -> letE i' e' $ loop vs sccs
+          | i' `elem` freeVars e' -> letRecE low anns i' e' $ loop vs sccs
+          | otherwise -> letE low anns i' e' $ loop vs sccs
     loop vvs (CyclicSCC ies : sccs) =
       let (v:vs) = vvs in
-      mutualRec v ies (loop vs sccs)
+      mutualRec low anns v ies (loop vs sccs)
   in loop mvs asccs
 
-letE :: Ident -> Exp -> Exp -> Exp
-letE i e b = eLet i e b          -- do some minor optimizations
+letE :: Low -> Anns -> Ident -> Exp -> Exp -> Exp
+letE True anns i e b | Just t <- lookup i anns = apps (Lit (LPrim lowLetPrim)) [t, Lam i b, e]  -- $lowlet t (\ i -> b) e
+letE low _ i e b = eLet low i e b          -- do some minor optimizations
              --App (Lam i b) e
 
 -- Do a single recursive definition 'let i = e in b'
 -- by 'let i = Y (\i.e) in b'
-letRecE :: Ident -> Exp -> Exp -> Exp
-letRecE i e b = letE i (App (Lit (LPrim "Y")) (Lam i e)) b
+letRecE :: Low -> Anns -> Ident -> Exp -> Exp -> Exp
+letRecE True anns i e b = lowLetRec anns [(i, e)] b
+letRecE low _ i e b = letE low [] i (App (Lit (LPrim "Y")) (Lam i e)) b
+
+-- Recursive definitions in low code:
+--   $lowletrec n [t1 .. tn] (\ x1 ... xn -> $lowrecbody e1 ... en body)
+lowLetRec :: Anns -> [LDef] -> Exp -> Exp
+lowLetRec anns ies body =
+  let (is, es) = unzip ies
+      ty i = fromMaybe (Lit (LPrim "$lowunknown")) (lookup i anns)
+  in  apps (Lit (LPrim lowLetRecPrim)) [Lit (LInt (length is)), encList (map ty is), lams is (apps (Lit (LPrim lowRecBodyPrim)) (es ++ [body]))]
 
 -- Do mutual recursion by tupling up all the definitions.
 --  let f = ... g ...
@@ -207,14 +242,15 @@ letRecE i e b = letE i (App (Lit (LPrim "Y")) (Lam i e)) b
 --    let f = sel_0_2 v
 --        g = sel_1_2 v
 --    in  body
-mutualRec :: Ident -> [LDef] -> Exp -> Exp
-mutualRec v ies body =
+mutualRec :: Low -> Anns -> Ident -> [LDef] -> Exp -> Exp
+mutualRec True anns _ ies body = lowLetRec anns ies body
+mutualRec _ _ v ies body =
   let (is, es) = unzip ies
       n = length is
       ev = Var v
-      one m i = letE i (encTupleSel m n ev)
+      one m i = letE False [] i (encTupleSel m n ev)
       bnds = foldr (.) id $ zipWith one [0..] is
-  in  letRecE v (bnds $ encTuple es) $
+  in  letRecE False [] v (bnds $ encTuple es) $
       bnds body
 
 -- In case we are cross compiling for a 32 bit platform we don't want integers that are too big.
@@ -231,35 +267,50 @@ encodeRational :: Rational -> Exp
 encodeRational r =
   App (App (Var (mkIdent "Data.Ratio_Type._mkRational")) (encodeInteger (numerator r))) (encodeInteger (denominator r))
 
-dsExpr :: Expr -> Exp
-dsExpr aexpr =
+dsExpr :: Low -> Expr -> Exp
+dsExpr low aexpr =
   case aexpr of
     -- Change calls to error&undefined to include location
     EVar f | f == mkIdent "Control.Error.undefined" ->
-      dsExpr $ addLoc (mkIdentSLoc (getSLoc f) "Control.Error._undefinedLoc")
+      dsExpr low $ addLoc (mkIdentSLoc (getSLoc f) "Control.Error._undefinedLoc")
     EVar f | f == mkIdent "Control.Error.error" ->
-      dsExpr $ addLoc (mkIdentSLoc (getSLoc f) "Control.Error._errorLoc")
+      dsExpr low $ addLoc (mkIdentSLoc (getSLoc f) "Control.Error._errorLoc")
 
     EVar i -> Var i
     EApp (EApp (EVar app) (EListish (LCompr e stmts))) l | app == iapp ->
-      dsExpr $ dsCompr e stmts l
-    EApp f a -> App (dsExpr f) (dsExpr a)
-    ELam l qs -> dsEqns l qs
+      dsExpr low $ dsCompr e stmts l
+    -- Low code markers from the type checker.  The annotations are meta level code.
+    EApp (EApp (ELit _ (LPrim p)) (EListish (LList anns))) (ELet ads e) | p == lowLetPrim ->
+      dsBinds low [ (mkIdent n, dsExpr False a) | ETuple [ELit _ (LStr n), a] <- anns ] ads (dsExpr low e)
+    EApp (EApp (ELit _ (LPrim p)) ann) e | p `elem` lowTypeMarkers ->
+      App (App (Lit (LPrim p)) (dsExpr False ann)) (dsExpr low e)
+    EApp f a -> App (dsExpr low f) (dsExpr low a)
+    ELam l qs -> dsEqns low l qs
     ELit l (LExn s) -> Var (mkIdentSLoc l s)
-    ELit _ (LChar c) -> Lit (LInt (ord c))
+    ELit _ (LChar c) | not low -> Lit (LInt (ord c))
     ELit _ (LInteger i) -> encodeInteger i
     ELit _ (LRat i) -> encodeRational i
     ELit _ l -> Lit l
-    ECase e as -> dsCase (getSLoc aexpr) e as
-    ELet ads e -> dsBinds ads (dsExpr e)
-    ETuple es -> encTuple $ map dsExpr es
-    EIf e1 e2 e3 -> encIf (dsExpr e1) (dsExpr e2) (dsExpr e3)
-    EListish (LList es) -> encList $ map dsExpr es
-    EListish (LCompr e stmts) -> dsExpr $ dsCompr e stmts (EListish (LList []))
-    -- Staging markers, interpreted by MicroHs.Stage
-    EQuote e -> App (Lit (LPrim quotePrim)) (dsExpr e)
-    ESplice e -> App (Lit (LPrim splicePrim)) (dsExpr e)
-    EStaged _ _ _ e -> dsExpr e    -- should have been resolved by the type checker
+    ECase e as -> dsCase low (getSLoc aexpr) e as
+    ELet ads e -> dsBinds low [] ads (dsExpr low e)
+    ETuple es | low -> apps (lowConExp (tupleCon (getSLoc aexpr) (length es))) (map (dsExpr low) es)
+              | otherwise -> encTuple $ map (dsExpr low) es
+    EIf e1 e2 e3 | low -> lowIf (dsExpr low e1) (dsExpr low e2) (dsExpr low e3)
+                 | otherwise -> encIf (dsExpr low e1) (dsExpr low e2) (dsExpr low e3)
+    EListish (LList es) | low -> dsExpr low $ foldr (\ e r -> EApp (EApp conCons e) r) conNil es
+                        | otherwise -> encList $ map (dsExpr low) es
+    EListish (LCompr e stmts) -> dsExpr low $ dsCompr e stmts (EListish (LList []))
+    -- Staging markers, interpreted by MicroHs.Stage.
+    -- A quotation is desugared in the mode of its kind (Code or Low).
+    EQuote (Just k) e | isLowKind k -> App (Lit (LPrim lowQuotePrim)) (dsExpr True e)
+                      | otherwise   -> App (Lit (LPrim quotePrim)) (dsExpr False e)
+    -- Low code spliced into object code (or a Code quotation) is converted to Code.
+    ESplice (Just k) e | not low && isLowKind k -> App (Lit (LPrim splicePrim)) (App (Var (mkIdent "$Code.low")) (dsExpr False e))
+                       | otherwise -> App (Lit (LPrim splicePrim)) (dsExpr False e)
+    EQuote Nothing _ -> impossiblePP aexpr
+    ESplice Nothing _ -> impossiblePP aexpr
+    EStaged _ _ _ e -> dsExpr low e    -- should have been resolved by the type checker
+    ECon c | low -> lowConExp aexpr
     ECon c ->
         case getTupleConstr (conIdent c) of
           Just n ->
@@ -271,6 +322,60 @@ dsExpr aexpr =
     _ -> impossiblePP aexpr
   where addLoc i = EApp (EVar i) (ELit l (LStr (prettyShow l ++ ": "))) where l = getSLoc i
         iapp = mkIdent "Data.List_Type.++"
+
+isLowKind :: EType -> Bool
+isLowKind (EVar c) = c == identLow
+isLowKind _ = False
+
+-- A constructor in low code:  $lowcon "C" tag ncons arity newtype
+lowConExp :: Expr -> Exp
+lowConExp (ECon c) =
+  let (i, tag, n, ar, nt) =
+        case c of
+          ConData cti ci _ ->
+            case lookup ci cti of
+              Just a -> (ci, length (takeWhile ((/= ci) . fst) cti), length cti, a, 0)
+              Nothing -> impossible
+          ConNew ci _ -> (ci, 0, 1, 1, 1)
+          ConSyn{} -> impossible
+  in  apps (Lit (LPrim lowConPrim)) [Lit (LStr (unIdent i)), Lit (LInt tag), Lit (LInt n), Lit (LInt ar), Lit (LInt nt)]
+lowConExp e = impossiblePP e
+
+-- The unit value in low code.
+lowUnit :: Exp
+lowUnit = lowConExp (tupleCon noSLoc 0)
+
+-- if in low code: a case on Bool.
+lowIf :: Exp -> Exp -> Exp -> Exp
+lowIf c t e =
+  let cti = [(identFalse, 0), (identTrue, 0)]
+  in  lowCase c [(SPat (ConData cti identFalse []) [], e), (SPat (ConData cti identTrue []) [], t)] (lowFail "if")
+
+identFalse, identTrue :: Ident
+identFalse = mkIdent "Data.Bool_Type.False"
+identTrue = mkIdent "Data.Bool_Type.True"
+
+-- A case in low code:
+--   $lowcase x ($lowcons "C1" a1 ... "Cn" an) k alt1 ... altk dflt
+-- where the alternatives are   $lowalt "Ci" i (\ x1 ... xai -> e)
+lowCase :: Exp -> [(SPat, Exp)] -> Exp -> Exp
+lowCase var pes dflt =
+  case pes of
+    (SPat (ConData cti _ _) _, _) : _ ->
+      let cons = apps (Lit (LPrim lowConsPrim)) (Lit (LInt 0) : concat [ [Lit (LStr (unIdent c)), Lit (LInt a)] | (c, a) <- cti ])
+          alt (SPat (ConData _ c _) xs, e) =
+            apps (Lit (LPrim lowAltPrim)) [Lit (LStr (unIdent c)), Lit (LInt (length (takeWhile ((/= c) . fst) cti))), lams xs e]
+          alt _ = impossible
+      in  apps (Lit (LPrim lowCasePrim)) (var : cons : Lit (LInt (length pes)) : map alt pes ++ [dflt])
+    (SPat (ConNew c _) [x], e) : _ ->
+      let cons = apps (Lit (LPrim lowConsPrim)) [Lit (LInt 1), Lit (LStr (unIdent c)), Lit (LInt 1)]
+          alt = apps (Lit (LPrim lowAltPrim)) [Lit (LStr (unIdent c)), Lit (LInt 0), Lam x e]
+      in  apps (Lit (LPrim lowCasePrim)) [var, cons, Lit (LInt 1), alt, dflt]
+    _ -> impossible
+
+-- A failed pattern match in low code.
+lowFail :: String -> Exp
+lowFail msg = App (Lit (LPrim lowFailPrim)) (Lit (LStr msg))
 
 dsCompr :: Expr -> [EStmt] -> Expr -> Expr
 dsCompr e [] l = EApp (EApp conCons e) l
@@ -325,15 +430,15 @@ showLDef a =
 
 ----------------
 
-dsCase :: HasCallStack => SLoc -> Expr -> [ECaseArm] -> Exp
-dsCase loc ae as =
-  dsCaseExp loc usedVars [dsExpr ae] (map mkArm as)
+dsCase :: HasCallStack => Low -> SLoc -> Expr -> [ECaseArm] -> Exp
+dsCase low loc ae as =
+  dsCaseExp low loc usedVars [dsExpr low ae] (map mkArm as)
   where
     usedVars = allVarsExpr (ECase ae as)
     mkArm :: ECaseArm -> Arm
     mkArm (p, alts) =
       let p' = dsPat p
-      in  ([p'], id, dsAlts alts)
+      in  ([p'], id, dsAlts low alts)
 
 type MState = [Ident]  -- supply of unused variables.
 
@@ -354,23 +459,23 @@ newIdent = do
   put (tail is)
   return (head is)
 
-dsCaseExp :: HasCallStack => SLoc -> [Ident] -> [Exp] -> Matrix -> Exp
-dsCaseExp loc used ss mtrx =
+dsCaseExp :: HasCallStack => Low -> SLoc -> [Ident] -> [Exp] -> Matrix -> Exp
+dsCaseExp low loc used ss mtrx =
   let
     supply = newVars "$x" used
     ds xs aes =
       case aes of
-        []   -> dsMatrixL (eMatchErr loc) (reverse xs) mtrx
-        e:es -> letBind (return e) $ \ x -> ds (x:xs) es
+        []   -> dsMatrixL low (eMatchErr low loc) (reverse xs) mtrx
+        e:es -> letBind low (return e) $ \ x -> ds (x:xs) es
   in evalState (ds [] ss) supply
 
 -- Handle lazy and strict bindings
 dsMatrixL :: HasCallStack =>
-             Exp -> [Exp] -> Matrix -> M Exp
-dsMatrixL dflt is arms = dsMatrix dflt is (map dsLazy arms)
+             Low -> Exp -> [Exp] -> Matrix -> M Exp
+dsMatrixL low dflt is arms = dsMatrix low dflt is (map (dsLazy low) arms)
 
-dsLazy :: Arm -> Arm
-dsLazy (ps, sub, rhs) =
+dsLazy :: Low -> Arm -> Arm
+dsLazy low (ps, sub, rhs) =
   -- Accumulate lazy bindings and strict bindings
   let ((_, rbs, ris), ps') = mapAccumL lazy (1, [], []) ps
       lazy :: (Int, [EBind], [Exp]) -> EPat -> ((Int, [EBind], [Exp]), EPat)
@@ -388,7 +493,7 @@ dsLazy (ps, sub, rhs) =
           EApp p1 p2              -> (s'', EApp p1' p2') where (s', p1') = lazy s p1; (s'', p2') = lazy s' p2
           EAt i p                 -> (s', EAt i p')      where (s', p')  = lazy s p
           _                       -> impossible
-  in  (ps', sub, \ d -> dsBinds (reverse rbs) $ foldr eSeq (rhs d) (reverse ris))
+  in  (ps', sub, \ d -> dsBinds low [] (reverse rbs) $ foldr eSeq (rhs d) (reverse ris))
 
 eSeq :: Exp -> Exp -> Exp
 eSeq e1 e2 = App (App (Lit (LPrim "seq")) e1) e2
@@ -409,14 +514,14 @@ groupEq eq axs =
 --                     pm1, ..., pmn   -> em
 -- Note that the RHSs are of type Exp.
 dsMatrix :: HasCallStack =>
-            Exp -> [Exp] -> Matrix -> M Exp
+            Low -> Exp -> [Exp] -> Matrix -> M Exp
 --dsMatrix dflt is aarms | trace (show (dflt, is)) False = undefined
-dsMatrix dflt _ [] = return dflt
-dsMatrix dflt []         aarms =
+dsMatrix _   dflt _ [] = return dflt
+dsMatrix _   dflt []         aarms =
   -- We can have several arms if there are guards.
   -- Combine them in order.
   return $ foldr (\ (_, sub, rhs) -> sub . rhs) dflt aarms
-dsMatrix dflt iis@(i:is) aarms@(aarm : _) =
+dsMatrix low dflt iis@(i:is) aarms@(aarm : _) =
   case leftMost aarm of
     EVar _ -> do
       -- Find all variables, substitute with i, and proceed
@@ -424,24 +529,24 @@ dsMatrix dflt iis@(i:is) aarms@(aarm : _) =
           vars' = map (sub . unAt i) vars
           sub (EVar x : ps, sb, rhs) = (ps, substAlpha x i . sb, rhs)
           sub _ = impossible
-      letBind (dsMatrix dflt iis nvars) $ \ drest ->
-        dsMatrix drest is vars'
+      letBindJoin low (dsMatrix low dflt iis nvars) $ \ drest ->
+        dsMatrix low drest is vars'
     -- Collect identical transformations, do the transformation and proceed.
     EViewPat e _ -> do
-      let e' = case unAt i aarm of (_, sub, _) -> sub (dsExpr e)
+      let e' = case unAt i aarm of (_, sub, _) -> sub (dsExpr low e)
       let (views, nviews) = span (isPView e') (map (unAt i) aarms)
-      letBind (dsMatrix dflt iis nviews) $ \ drest ->
-        letBind (return $ App e' i) $ \ vi -> do
+      letBindJoin low (dsMatrix low dflt iis nviews) $ \ drest ->
+        letBind low (return $ App e' i) $ \ vi -> do
         let views' = map unview views
             unview (EViewPat _ p:ps, sub, rhs) = (p:ps, sub, rhs)
             unview _ = impossible
-        dsMatrix drest (vi:is) views'
+        dsMatrix low drest (vi:is) views'
 
     -- Collect all constructors, group identical ones.
     _ -> do             -- must be ECon/EApp
       let
         (cons, ncons) = span (isPCon . leftMost) aarms
-      letBind (dsMatrix dflt iis ncons) $ \ drest -> do
+      letBindJoin low (dsMatrix low dflt iis ncons) $ \ drest -> do
         let
           idOf (p:_, _, _) = pConOf p
           idOf _ = impossible
@@ -453,10 +558,10 @@ dsMatrix dflt iis@(i:is) aarms@(aarm : _) =
             let
               one (p : ps, sub, e) = (pArgs p ++ ps, sub, e)
               one _ = impossible
-            cexp <- dsMatrix drest (map Var xs ++ is) (map one grp)
+            cexp <- dsMatrix low drest (map Var xs ++ is) (map one grp)
             return (SPat con xs, cexp)
         narms <- mapM oneGroup grps
-        return $ mkCase i narms drest
+        return $ mkCase low i narms drest
   where
     leftMost (p:_, _, _) = skipEAt p  -- pattern in first column
     leftMost _ = impossible
@@ -468,38 +573,54 @@ dsMatrix dflt iis@(i:is) aarms@(aarm : _) =
     isPVar (EVar _) = True
     isPVar _ = False
     isPView :: Exp -> Arm -> Bool
-    isPView e (EViewPat ee _:_, sub, _) = e == sub (dsExpr ee)
+    isPView e (EViewPat ee _:_, sub, _) = e == sub (dsExpr low ee)
     isPView _ _ = False
 
 unAt :: Exp{-Ident-} -> Arm -> Arm
 unAt ii (EAt x p : ps, sub, rhs) = unAt ii (p:ps, substAlpha x ii . sub, rhs)
 unAt _ arm = arm
 
-mkCase :: Exp -> [(SPat, Exp)] -> Exp -> Exp
-mkCase var pes dflt =
+mkCase :: Low -> Exp -> [(SPat, Exp)] -> Exp -> Exp
+mkCase low var pes dflt =
   --trace ("mkCase " ++ show pes) $
   case pes of
     [] -> dflt
-    [(SPat (ConNew _ _) [x], arhs)] -> eLet x var arhs
+    _ | low -> lowCase var pes dflt
+    [(SPat (ConNew _ _) [x], arhs)] -> eLet low x var arhs
     _ -> encCase var pes dflt
 
-eMatchErr :: SLoc -> Exp
-eMatchErr loc =
+eMatchErr :: Low -> SLoc -> Exp
+eMatchErr True loc = lowFail (prettyShow loc)
+eMatchErr _ loc =
   let exn = mkIdentSLoc loc "Control.Exception.Internal.patternMatchFail"
       msg = LStr $ prettyShow loc
   in  App (Var exn) (Lit msg)
 
 -- If the first expression isn't a variable/literal, then use
 -- a let binding and pass variable to f.
-letBind :: M Exp -> (Exp -> M Exp) -> M Exp
-letBind me f = do
+letBind :: Low -> M Exp -> (Exp -> M Exp) -> M Exp
+letBind low me f = do
   e <- me
   if cheap e then
     f e
    else do
     x <- newIdent
     r <- f (Var x)
-    return $ eLet x e r
+    return $ eLet low x e r
+
+-- Like letBind, but for the default alternatives of a match (join points).
+-- In low code these must be functions, so that the (strict) code does
+-- not evaluate the alternative unless it is needed.
+letBindJoin :: Low -> M Exp -> (Exp -> M Exp) -> M Exp
+letBindJoin False me f = letBind False me f
+letBindJoin True me f = do
+  e <- me
+  if cheap e then
+    f e
+   else do
+    x <- newIdent
+    r <- f (App (Var x) lowUnit)
+    return $ lowJoin x e r
 
 cheap :: Exp -> Bool
 cheap ae =
@@ -509,9 +630,9 @@ cheap ae =
 --    Lit _ -> True  -- inlining all literals can reduce sharing
     _ -> False
 
-eLet :: Ident -> Exp -> Exp -> Exp
-eLet i e b | cheap e = substExp i e b    -- always inline variables and literals
-eLet i e b =
+eLet :: Low -> Ident -> Exp -> Exp -> Exp
+eLet _ i e b | cheap e = substExp i e b    -- always inline variables and literals
+eLet low i e b =
   if i == dummyIdent then
     b
   else
@@ -524,8 +645,12 @@ eLet i e b =
           -- But not when the body contains a splice: the variable may be quoted
           -- inside the splice, and the code generated by the splice can use it
           -- any number of times (this is what let insertion relies on).
-          [_] | not (hasSplice b) -> substExp i e b   -- single occurrence, substitute  XXX could be worse if under lambda
+          -- Not in low code either: a let is evaluated once, and before its body.
+          -- (Except for dictionaries, which are meta level values.)
+          [_] | not (hasSplice b), not low || isDict i -> substExp i e b   -- single occurrence, substitute  XXX could be worse if under lambda
+          _ | low && isDict i -> substExp i e b
           _   -> App (Lam i b) e  -- just use a beta redex
+  where isDict j = dictPrefixDollar `isPrefixOf` unIdent j
 
 -- Does the expression contain a splice?
 hasSplice :: Exp -> Bool
@@ -619,7 +744,7 @@ lazier def@(fcn, l@(Lam _ _)) =
         | v == fcn && take arity vs == drops = app (drop arity vs) vfcn'
       repl vs e = app vs e
   in  if arity > 0
-      then (fcn, lams drops $ letRecE fcn' (lams keeps (repl [] body)) vfcn')
+      then (fcn, lams drops $ letRecE False [] fcn' (lams keeps (repl [] body)) vfcn')
       else def
 lazier def = def
 

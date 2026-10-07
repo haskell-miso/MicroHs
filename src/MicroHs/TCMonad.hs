@@ -181,9 +181,57 @@ data StageState = StageState {
   ssDictUses    :: M.Map [Level],         -- the stages at which each dictionary identifier is used
   ssDictChecks  :: [(SLoc, Ident, [Level])],  -- deferred stage checks of uses of global values and dictionaries
   ssStagedNodes :: Bool,                  -- were any EStaged nodes created for the current definition
-  ssLevelFixes  :: Int                    -- number of level variables bound so far
+  ssLevelFixes  :: Int,                   -- number of level variables bound so far
+  -- Closure-free code (Low)
+  ssQuote       :: Maybe EType,           -- the kind (Code or Low) of the enclosing quotation, Nothing outside quotations
+  ssQuoteVars   :: [Int],                 -- unification variables that stand for the kind of a quotation
+  ssLowChecks   :: [LowCheck],            -- deferred checks of low code, done when the quotation kinds are known
+  ssDictQuotes  :: M.Map [EType]          -- the quotation kinds in which each dictionary was created
   }
   deriving (Show)
+
+-- A deferred check of low code: the kind of the quotation it is in,
+-- the location, what is checked, a description of the checked thing, and its type.
+data LowCheck = LowCheck EType SLoc LowChk String EType
+  deriving (Show)
+
+-- What is checked: a value type, a well formed low type (value or first order function),
+-- or a constraint that was solved by a dictionary argument.
+data LowChk = LowValue | LowWF | LowDict
+  deriving (Show)
+
+quoteKind :: TCState -> Maybe EType
+quoteKind = ssQuote . stage
+quoteVars :: TCState -> [Int]
+quoteVars = ssQuoteVars . stage
+lowChecks :: TCState -> [LowCheck]
+lowChecks = ssLowChecks . stage
+dictQuotes :: TCState -> M.Map [EType]
+dictQuotes = ssDictQuotes . stage
+
+addQuoteVar :: Int -> T ()
+addQuoteVar n = modifyStage $ \ ss -> ss{ ssQuoteVars = n : ssQuoteVars ss }
+
+addLowCheck :: EType -> SLoc -> LowChk -> String -> EType -> T ()
+addLowCheck q loc ck what t = modifyStage $ \ ss -> ss{ ssLowChecks = LowCheck q loc ck what t : ssLowChecks ss }
+
+-- Record the quotation kind in which a dictionary is created.
+addDictQuote :: Ident -> T ()
+addDictQuote d = modifyStage $ \ ss ->
+  case ssQuote ss of
+    Nothing -> ss
+    Just q -> ss{ ssDictQuotes = M.insertWith (++) d [q] (ssDictQuotes ss) }
+
+addDictQuotes :: Ident -> [EType] -> T ()
+addDictQuotes _ [] = return ()
+addDictQuotes d qs = modifyStage $ \ ss -> ss{ ssDictQuotes = M.insertWith (++) d qs (ssDictQuotes ss) }
+
+getDictQuotes :: Ident -> T [EType]
+getDictQuotes d = gets (fromMaybe [] . M.lookup d . dictQuotes)
+
+-- Reset the per definition low code state.
+resetLowState :: T ()
+resetLowState = modifyStage $ \ ss -> ss{ ssQuoteVars = [], ssLowChecks = [] }
 
 curLevel :: TCState -> Level
 curLevel = ssCurLevel . stage
