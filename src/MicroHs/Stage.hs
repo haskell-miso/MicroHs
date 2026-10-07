@@ -30,7 +30,7 @@ import MicroHs.Abstract(compileOpt)
 import MicroHs.Desugar(LDef, quotePrim, splicePrim, hasSplice)
 import MicroHs.EncodeData(SPat(..), encConstr, encList, encCase, encTuple, encTupleSel)
 import MicroHs.Exp
-import MicroHs.Expr(Lit(..), Level(..), Con(..), ImpEnt(..), showLit, HasLoc(..), errorMessage)
+import MicroHs.Expr(Lit(..), Level(..), Con(..), ImpEnt(..), showLit, HasLoc(..), errorMessage, getTupleConstr)
 import MicroHs.Ident
 import qualified MicroHs.IdentMap as M
 import MicroHs.Names
@@ -475,6 +475,11 @@ lowLeaf lenv loc env t ae args =
             Right (Right (g, c)) -> apply (apps (lowV "HForeign") [lowStr (unIdent g), lowStr c, t])
             Left msg -> stageError loc msg
 
+dropModule :: String -> String
+dropModule s = case break (== '.') s of
+                 (_, r@('.' : _)) -> r
+                 _ -> s
+
 -- Remove the type marks ($lowty t e) from an expression (used to recognize literals).
 stripTy :: Exp -> Exp
 stripTy e =
@@ -494,8 +499,13 @@ resolveGlobal lenv env = resolve (0 :: Int)
         Var g ->
           case M.lookup g (leDefs lenv) of
             Just d | Just c <- findForImp d -> Right (Right (g, c))
-                   | otherwise -> resolve (n + 1) d
+                   | otherwise ->
+                     case resolve (n + 1) d of
+                       Left _ -> Left $ "cannot use " ++ showIdent g ++ " in low code: it is not a primitive (low code can only use primitives, constructors, and local definitions)"
+                       r -> r
             Nothing -> Left $ "cannot use " ++ showIdent g ++ " in low code: only primitives, constructors, and local definitions are allowed"
+                           ++ (if "Integer" `isPrefixOf` unQualString (unIdent g) || ".Integer" `isPrefixOf` dropModule (unIdent g) then
+                                 "\n  (numeric literals default to Integer; use a type annotation such as (0 :: Int))" else "")
         -- eta reduce  \ x -> f x
         Lam x (App f (Var y)) | x == y -> resolve (n + 1) f
         -- a class method applied to a dictionary
@@ -503,8 +513,12 @@ resolveGlobal lenv env = resolve (0 :: Int)
           case dictExp d of
             Just de ->
               case getAppE de of
-                (Var c, fields) | c == dcon, ix < length fields -> resolve (n + 1) (fields !! ix)
-                _ -> Left $ "the method " ++ showIdent m ++ " is not a primitive in this instance, so it cannot be used in low code"
+                (Var c, fields) | c == dcon, ix < length fields ->
+                  case resolve (n + 1) (fields !! ix) of
+                    Left _ -> Left notPrim
+                    r -> r
+                _ -> Left notPrim
+              where notPrim = "the method " ++ showIdent m ++ " is not a primitive in this instance, so it cannot be used in low code"
             Nothing -> Left $ "the method " ++ showIdent m ++ " cannot be used in low code: its instance is not known"
         _ -> Left "cannot use this expression in low code: only primitives, constructors, and local definitions are allowed"
     -- the definition of a dictionary
@@ -561,7 +575,7 @@ lowToExp d av =
   case av of
     VVar l x _ -> Var (lowVarIdent l x)
     VLam x _ f -> Lam (lowBinder d x) (lowToExp (d + 1) (f (lowVarV d x)))
-    VApp f as -> strictApps d (lowToExp d f) (map (lowToExp d) as)
+    VApp f as -> strictCall d (apps (lowToExp d f)) (map (lowToExp d) as)
     VLet x _ e f ->
       let x' = lowBinder d x
       in  App (Lam x' (eSeq (Var x') (lowToExp (d + 1) (f (lowVarV d x))))) (lowToExp d e)
@@ -595,7 +609,12 @@ lowToExp d av =
       in  case s' of
             Var _ -> eSeq s' (cas s')
             _ -> let sv = mkIdent ("$s" ++ show d) in App (Lam sv (eSeq (Var sv) (cas (Var sv)))) s'
-    VCon (LowConV c _ _ _) _ args -> strictApps d (Var (mkIdent c)) (map (lowToExp d) args)
+    VCon (LowConV c _ _ _) _ args ->
+      -- tuples have no constructor functions
+      let con = case getTupleConstr (mkIdent c) of
+                  Just _ -> encTuple
+                  Nothing -> apps (Var (mkIdent c))
+      in  strictCall d con (map (lowToExp d) args)
     VLit l _ ->
       case l of
         VInt i -> Lit (LInt i)
@@ -626,11 +645,11 @@ lowVarIdent l x | "$l" `isPrefixOf` x = lowBinder l (drop 2 x)
 eSeq :: Exp -> Exp -> Exp
 eSeq a b = App (App (Lit (LPrim "seq")) a) b
 
--- A call with all the arguments evaluated first.
-strictApps :: Int -> Exp -> [Exp] -> Exp
-strictApps d f as = go [] (zip [0 :: Int ..] as)
+-- A call (or constructor application) with all the arguments evaluated first.
+strictCall :: Int -> ([Exp] -> Exp) -> [Exp] -> Exp
+strictCall d f as = go [] (zip [0 :: Int ..] as)
   where
-    go acc [] = apps f (reverse acc)
+    go acc [] = f (reverse acc)
     go acc ((i, a) : rest) =
       case a of
         Lit _ -> go (a : acc) rest

@@ -173,7 +173,7 @@ gen env at =
               (e', ss) <- block (gen env e)
               mapM_ emit ss
               emit (r ++ " = " ++ e' ++ "; break; }")
-            _ -> return ()
+            _ -> emit "default: abort();"      -- cannot happen: all constructors are covered
           emit "}"
         _ -> emit ("/* case on " ++ show st ++ " */")
       return r
@@ -310,7 +310,7 @@ toC name p =
       entry = rty ++ " " ++ name ++ "(" ++ intercalate ", " [ cType t ++ " " ++ cVar x | (x, t) <- params ++ free ] ++ ") {\n" ++
               unlines (map ("  " ++) ss) ++ "  return " ++ r ++ ";\n}"
   in  unlines $
-        [ "#include <stdint.h>", "#include <stdlib.h>", "#include <stdio.h>", "" ] ++
+        [ "#include <stdint.h>", "#include <stdlib.h>", "#include <stdio.h>", "#include <math.h>", "" ] ++
         map cDecl (progDecls p) ++ [""] ++
         reverse (csFuns st) ++ [""] ++
         [entry]

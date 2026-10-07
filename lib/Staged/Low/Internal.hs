@@ -80,15 +80,31 @@ instance Show LowTy where
       TFloat -> showString "Float"
       TChar -> showString "Char"
       TFun as r -> showParen (p > 0) $ foldr (\ a s -> showsPrec 1 a . showString " -> " . s) (showsPrec 0 r) as
-      TData n [] _ -> showString n
-      TData n as _ -> showParen (p > 10) $ showString n . foldr (\ a s -> showChar ' ' . showsPrec 11 a . s) id as
+      TData n [a] _ | base n == "[]" -> showChar '[' . showsPrec 0 a . showChar ']'
+      TData n as _ | all (== ',') (base n), length as == length (base n) + 1 ->
+        showChar '(' . foldr (.) id (zipWith (\ i a -> (if i == (0 :: Int) then id else showString ", ") . showsPrec 0 a) [0 ..] as) . showChar ')'
+      TData n [] _ -> showString (base n)
+      TData n as _ -> showParen (p > 10) $ showString (base n) . foldr (\ a s -> showChar ' ' . showsPrec 11 a . s) id as
       TParam i -> showChar '#' . shows i
       TOther s -> showString "{" . showString s . showString "}"
 
+-- Operators (and tuple constructors) in parentheses.
+paren :: String -> String
+paren n@(c : _) | c == ',' || c == ':' = "(" ++ n ++ ")"
+paren n = n
+
+-- The name without the module qualifier.
+base :: String -> String
+base s =
+  case break (== '.') s of
+    (m, '.' : r) | not (null m) && all (\ c -> c /= '(' && c /= '[') m && not (null r) -> base r
+    _ -> s
+
 instance Show LowDecl where
   showsPrec _ (LowDecl n a nt cs) =
-    showString (if nt then "newtype " else "data ") . showString n . showString " (" . shows a . showString " parameters) = " .
-    foldr (.) id [ (if i == (0 :: Int) then id else showString " | ") . showString (conDeclName c) .
+    showString (if nt then "newtype " else "data ") . showString (paren (base n)) .
+    foldr (.) id [ showString " #" . shows i | i <- [0 .. a - 1] ] . showString " = " .
+    foldr (.) id [ (if i == (0 :: Int) then id else showString " | ") . showString (paren (base (conDeclName c))) .
                    foldr (\ t s -> showChar ' ' . showsPrec 11 t . s) id (conDeclFields c)
                  | (i, c) <- zip [0 ..] cs ]
 

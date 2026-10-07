@@ -11,7 +11,7 @@ import Staged.Low
 f :: Low [Int] -> Low [Int]
 f xs = [| map (\ x -> x + 1) ~xs |]
 -----
-"../tmp/E.hs": line 5, col 12: low code: the variable map must have a value type or a first order function type, not ((Int -> Int) -> [Int] -> [Int])
+"../tmp/E.hs": line 5, col 11: low code: the variable map must have a value type or a first order function type, not (Int -> Int) -> [Int] -> [Int]
 
 =====
 module E() where
@@ -19,7 +19,7 @@ import Staged.Low
 g :: Low Int -> Low [Int -> Int]
 g x = [| [\ y -> y + ~x] |]
 -----
-"../tmp/E.hs": line 5, col 7: low code: the type of a quotation must have a value type or a first order function type, not [Int -> Int]
+"../tmp/E.hs": line 5, col 11: low code: the type of a quotation must have a value type or a first order function type, not [Int -> Int]
 
 =====
 module E() where
@@ -27,7 +27,7 @@ import Staged.Low
 h :: Num a => Low a -> Low a
 h x = [| ~x + ~x |]
 -----
-"../tmp/E.hs": line 5, col 13: low code: the constraint Num a must be solved by an instance; low code cannot be overloaded
+"../tmp/E.hs": line 5, col 1: stage mismatch: the type a is meta level, but is used at object level
 
 =====
 module E() where
@@ -36,13 +36,15 @@ import Staged.Low
 f :: Code Int -> Low Int
 f c = [| ~c + 1 |]
 -----
-"../tmp/E.hs": line 6, col 10: only Low code can be spliced into low code
+"../tmp/E.hs": line 6, col 11: only Low code can be spliced into low code
 
 =====
 module E() where
 import Staged.Low
 f :: Low Int -> Low Int
 f x = [| length [~x] |]
+g :: Int -> Int
+g n = ~(f [| n |])
 -----
 "../tmp/E.hs": line 5, col 1: staging error: the method length is not a primitive in this instance, so it cannot be used in low code
 
@@ -52,7 +54,7 @@ import Staged.Low
 f :: Low Int -> Low Int
 f x = [| let y = x in y |]
 -----
-"../tmp/E.hs": line 5, col 18: meta level variable used in object code: x
+"../tmp/E.hs": line 5, col 23: stage mismatch: y is meta level, but is used at object level
 
 =====
 END
