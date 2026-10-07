@@ -268,7 +268,10 @@ compileModuleP flags impt mdl@(EModule _ _ defs) = do
     loadBoots flags
   cash <- get
   let
-    (smdl, staged, metaCode) = stageModule (gLevels glob') (cachedModules cash) dmdl
+    (smdl, staged, metaCode) = stageModule (gLevels glob') (gClassTable glob') (cachedModules cash) dmdl
+  dumpIf flags Dstage $
+    unless (null staged) $ liftIO $
+      putStrLn $ "meta code:\n" ++ unlines (map prettyShow metaCode)
   when needRun $ liftIO $ do
     -- Find all the errors in the module before running any of its code.
     _ <- evaluate (rnf (tBindingsOf dmdl))

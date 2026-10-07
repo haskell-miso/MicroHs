@@ -84,6 +84,10 @@
     - --ignore-glob=tests/ForImpJS.hs
     # Two-level type theory splice syntax ~e is not GHC syntax
     - --ignore-glob=lib/Staged.hs
+    - --ignore-glob=lib/Staged/Low.hs
+    - --ignore-glob=tests/Low1.hs
+    - --ignore-glob=tests/Low2.hs
+    - --ignore-glob=tests/Low3.hs
     - --ignore-glob=tests/Staged1.hs
     - --ignore-glob=tests/Staged2.hs
     - --ignore-glob=tests/Staged3.hs
