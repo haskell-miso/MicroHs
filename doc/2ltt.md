@@ -129,7 +129,9 @@ The rules, in `stageCoercion`:
   cannot have that type itself is quoted.  That is a literal, an object level
   variable, or an application whose head cannot return code: its result type
   is a type constructor other than `Code`/`Low`, or a type variable
-  constrained by a class (code types have no instances), as for `x * y`.
+  constrained by a class with no instance a code type can match, as for
+  `x * y` (with an `instance Num (Code Int)` it is meta code, and is left
+  alone).
 * At the object level, a meta level variable, or an application with one at the
   head, whose result is `Code t` (or `Low t`) is spliced.
 * A definition whose stage is not known yet (no `Code` in its signature) is

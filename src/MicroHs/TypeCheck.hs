@@ -4362,7 +4362,7 @@ stageCoercion mt ae
 
     -- The expected type is known, and it is not a code type.
     expectsNonCode (Check t) = do
-      t' <- derefUVar t
+      t' <- derefUVar t >>= expandSyn     -- a synonym may stand for a code type
       return $ case fst (flatApp t' []) of
         EUVar _ -> False
         _ -> not (isCodeType t')
@@ -4413,19 +4413,41 @@ stageCoercion mt ae
 
     resultCannotBeCode s = do
       (tvs, ctx, mr) <- resultType s
-      return $ case mr of
-        Nothing -> False
-        Just r | isCodeType r -> False
+      case mr of
+        Nothing -> return False
+        Just r | isCodeType r -> return False
                | otherwise ->
           case fst (flatApp r []) of
-            EUVar _ -> False
-            -- A type variable can be a code type, unless a class constrains it
-            -- (code types have no instances).
-            EVar v | v `elem` tvs -> any (mentions v) ctx
-            _ -> True       -- a type constructor other than Code/Low
+            EUVar _ -> return False
+            -- A type variable can be a code type, unless it is constrained by a
+            -- class that has no instance a code type can match.
+            EVar v | v `elem` tvs ->
+              or <$> mapM noCodeInstance [ c | c <- ctx, mentions v c ]
+            _ -> return True       -- a type constructor other than Code/Low
     mentions v c = any isV (snd (flatApp c []))
       where isV (EVar w) = w == v
             isV _ = False
+
+    -- Can no instance of the class of constraint c match a code type?
+    -- Look at the instances, and at the dictionaries in scope; an instance
+    -- whose type is a code type or a type variable might match.
+    noCodeInstance c =
+      case flatApp c [] of
+        (EVar cls, _) -> do
+          it <- gets instTable
+          ads <- gets argDicts
+          mts <- gets metaTable
+          let insts = case M.lookup cls it of
+                        Nothing -> []
+                        Just (InstInfo _ ds _) -> concat [ snd (f 0) | InstDict _ f <- ds ]
+              ctxTys = [ t | (_, d) <- ads ++ mts, (EVar dc, ts) <- [flatApp d []], dc == cls, t <- ts ]
+          return $ not (any mightBeCode (insts ++ ctxTys))
+        _ -> return False
+    mightBeCode t =
+      case fst (flatApp t []) of
+        EVar c -> c == identCode || c == identLow
+        EUVar _ -> True
+        _ -> False
 
     flatApp (EApp f a) as = flatApp f (a : as)
     flatApp e as = (e, as)
