@@ -1914,7 +1914,15 @@ tcExpr mt ae = tcExprR mt ae {-do
   return r -}
 tcExprR :: HasCallStack =>
            Expected -> Expr -> T Expr
-tcExprR mt ae =
+tcExprR mt ae = do
+  mc <- stageCoercion mt ae
+  case mc of
+    Just ae' -> tcExpr mt ae'
+    Nothing  -> tcExprS mt ae
+
+tcExprS :: HasCallStack =>
+           Expected -> Expr -> T Expr
+tcExprS mt ae =
   let { loc = getSLoc ae } in
 --  trace ("tcExprR " ++ show (ae, mt)) $
   case ae of
@@ -4293,6 +4301,137 @@ tcTypeLevel env loc l at =
           case at of
             EApp f a -> do { tcTypeLevel env loc l f; tcTypeLevel env loc l a }
             _ -> return ()
+
+-- Stage coercions: insert the quotations and splices the program leaves out.
+-- This follows the coercive subtyping of Kovács' 2LTT demo (A <= Code A
+-- inserts a quotation, Code A <= A a splice), restricted so that it only
+-- applies where checking the expression as written would fail.  So a program
+-- that type checks without the coercions means the same with them.
+--
+--  * At the meta level, an expression checked against Code t (or Low t) that
+--    cannot itself have that type is quoted:  e  ~~>  [| e |].
+--    That is a literal, an object level variable, or an application whose
+--    head's result type cannot be a code type (e.g. x * y, whose result is
+--    constrained by Num).
+--  * At the object level, a meta level variable, or an application with one
+--    at the head, whose result is code is spliced:  e  ~~>  ~e.
+--
+-- Both only look at expressions whose stages are known; a stage variable
+-- disables them.
+stageCoercion :: Expected -> Expr -> T (Maybe Expr)
+stageCoercion mt ae
+  | not (candidate hd) = return Nothing
+  | otherwise = do
+      tcm <- gets tcMode
+      if tcm /= TCExpr then return Nothing else do
+        cur <- gets curLevel >>= derefLevel
+        case cur of
+          LMeta -> do
+            code <- expectsCode mt
+            if not code then return Nothing else do
+              q <- cannotBeCode
+              return $ if q then Just (EQuote Nothing ae) else Nothing
+          LObj -> do
+            s <- isCodeHead
+            return $ if s then Just (ESplice Nothing ae) else Nothing
+          LVar _ -> do
+            -- The stage is not known yet.  A meta level application with a code
+            -- result, checked against a type that is not code, can only be object
+            -- code (reading it as meta code is a type error): fix the stage.
+            s <- isCodeHead
+            notCode <- expectsNonCode mt
+            if s && notCode then do
+              unifyLevel (getSLoc ae) "a splice" LObj cur
+              return (Just (ESplice Nothing ae))
+             else
+              return Nothing
+          _ -> return Nothing
+  where
+    (hd, args) = flatApp ae []
+    nargs = length args
+
+    candidate (EVar i) = not (isIdent dictPrefixDollar i) && not (isDummyIdent i)
+    candidate (ELit _ l) = isSourceLit l && null args
+    candidate _ = False
+    isSourceLit (LPrim _) = False
+    isSourceLit _ = True
+
+    -- The expected type is Code t or Low t.
+    expectsCode (Check t) = isCodeType <$> derefUVar t
+    expectsCode (Infer _) = return False
+
+    -- The expected type is known, and it is not a code type.
+    expectsNonCode (Check t) = do
+      t' <- derefUVar t
+      return $ case fst (flatApp t' []) of
+        EUVar _ -> False
+        _ -> not (isCodeType t')
+    expectsNonCode (Infer _) = return False
+
+    -- The stage and type of the head.
+    headInfo (EVar i) = do
+      env <- gets valueTable
+      case stLookup "" i env of
+        Left _ -> return Nothing
+        Right (Entry e s) -> do
+          ml <- maybe (return Nothing) lookupLevel (exprIdentM e)
+          l <- maybe (return Nothing) (fmap Just . derefLevel) ml
+          return (Just (l, s))
+    headInfo _ = return Nothing
+
+    cannotBeCode =
+      case hd of
+        ELit _ _ -> return True
+        _ -> do
+          mi <- headInfo hd
+          case mi of
+            Nothing -> return False
+            Just (Just LMeta, _) -> return False      -- meta code: check it as it is
+            Just (Just LObj, _) -> return True        -- object code used at the meta level
+            Just (_, s) -> resultCannotBeCode s
+
+    isCodeHead = do
+      mi <- headInfo hd
+      case mi of
+        Just (Just LMeta, s) -> maybe False isCodeType . thd <$> resultType s
+        _ -> return False
+    thd (_, _, c) = c
+
+    -- The result type of the head applied to nargs arguments, if it has that many.
+    resultType s = do
+      s' <- derefUVar s
+      let (iks, ctx, t) = splitContext s'
+      r <- stripArgs nargs t
+      return (map idKindIdent iks, ctx, r)
+    stripArgs :: Int -> EType -> T (Maybe EType)
+    stripArgs 0 t = Just <$> derefUVar t
+    stripArgs n t = do
+      t' <- derefUVar t
+      case getArrow t' of
+        Just (_, b) -> stripArgs (n - 1) b
+        Nothing -> return Nothing
+
+    resultCannotBeCode s = do
+      (tvs, ctx, mr) <- resultType s
+      return $ case mr of
+        Nothing -> False
+        Just r | isCodeType r -> False
+               | otherwise ->
+          case fst (flatApp r []) of
+            EUVar _ -> False
+            -- A type variable can be a code type, unless a class constrains it
+            -- (code types have no instances).
+            EVar v | v `elem` tvs -> any (mentions v) ctx
+            _ -> True       -- a type constructor other than Code/Low
+    mentions v c = any isV (snd (flatApp c []))
+      where isV (EVar w) = w == v
+            isV _ = False
+
+    flatApp (EApp f a) as = flatApp f (a : as)
+    flatApp e as = (e, as)
+
+    isCodeType (EApp (EVar c) _) = c == identCode || c == identLow
+    isCodeType _ = False
 
 -- Are the two stages known to be the same?
 sameLevel :: Level -> Level -> T Bool

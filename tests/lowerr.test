@@ -54,7 +54,7 @@ import Staged.Low
 f :: Low Int -> Low Int
 f x = [| let y = x in y |]
 -----
-"../tmp/E.hs": line 5, col 23: stage mismatch: y is meta level, but is used at object level
+"../tmp/E.hs": line 5, col 18: low code: the variable x must have a value type or a first order function type, not Low Int
 
 =====
 END

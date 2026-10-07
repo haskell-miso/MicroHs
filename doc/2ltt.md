@@ -108,6 +108,46 @@ is rejected (`a` would be at both stages); write `Code (a -> String) -> Code a -
 or use a concrete type.  Overloaded operations on concrete types work at both stages,
 e.g. `show (sum [1..100 :: Int])` can be computed at compile time.
 
+### Inferred quotations and splices
+
+Most quotations and splices can be left out; the type checker inserts them,
+following the coercive subtyping of Kovács' demo implementation
+(`A ≤ Code A` inserts a quotation, `Code A ≤ A` a splice):
+
+```haskell
+power :: Int -> Code Int -> Code Int
+power 0 _ = 1                          -- [| 1 |]
+power n x = x * power (n - 1) x        -- [| ~x * ~(power (n - 1) x) |]
+
+cube :: Int -> Int
+cube x = power 3 x                     -- ~(power 3 [| x |])
+```
+
+The rules, in `stageCoercion`:
+
+* At the meta level, an expression checked against `Code t` (or `Low t`) that
+  cannot have that type itself is quoted.  That is a literal, an object level
+  variable, or an application whose head cannot return code: its result type
+  is a type constructor other than `Code`/`Low`, or a type variable
+  constrained by a class (code types have no instances), as for `x * y`.
+* At the object level, a meta level variable, or an application with one at the
+  head, whose result is `Code t` (or `Low t`) is spliced.
+* A definition whose stage is not known yet (no `Code` in its signature) is
+  fixed to the object level when its body is a meta level application with a
+  code result, checked against a type that is not code, as for `cube`.
+
+A coercion is only inserted where checking the expression as written would
+fail, so it never changes the meaning of a program that type checks without
+it.  When the meta level reading is possible, it is used: in
+`maybe [| 0 |] f m :: Code Int` the `maybe` runs at compile time.  Write the
+quotations and splices to get the other reading.  `tests/StagedInfer.hs` has
+the examples of `Staged1` and `Low1` without annotations, and `-ddump-stage`
+shows the result.
+
+Not inferred yet: a `case` on code (`case y of 0 -> ...` with `y :: Code Int`,
+which should become an object level `case`), and the coercion between
+`Code (a -> b)` and `Code a -> Code b` (eta expansion) that the demo has.
+
 ### Library
 
 `lib/Staged.hs` provides `Code`, the serialization functions `codeInt`, `codeWord`,
