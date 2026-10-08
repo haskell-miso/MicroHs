@@ -292,6 +292,16 @@ its argument evaluated first); recursion through run time integers becomes
 a recursive low function, found by running the compiler in an analysis mode
 first.  Not done: a thunk passed to a recursive function that is not strict
 in it is evaluated once per call that needs it, not once for all calls.
+`tests/LowFutamuraLazy.hs` extends this to lazy data structures, whose size
+can depend on a run time value: `fibs = 0 : 1 : zipWith (+) fibs (tail fibs)`
+with `fibs !! input`.  Lists are run time data in a heap of cells threaded
+through the compiled program (`Thunk code captures | Done value`); the code
+of a thunk is compiled once for each shape of its environment (closures are
+still compile time values), it captures only run time values, and one low
+function dispatches on the code number.  Forcing a cell updates it (call by
+need), letrec ties a knot in the heap, and a delayed argument of a recursive
+function is a run time thunk shared by all its calls.  The compiled program
+takes linear time (`tests/LowFutamuraLazy.pfibs.c` is its C code).
 `tests/lowerr.test` shows the error messages.
 
 ### Not done, and recommendations

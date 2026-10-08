@@ -97,6 +97,7 @@
     - --ignore-glob=tests/LowInfer.hs
     - --ignore-glob=tests/LowLambda.hs
     - --ignore-glob=tests/LowFutamura.hs
+    - --ignore-glob=tests/LowFutamuraLazy.hs
     - --ignore-glob=tests/StagedLib.hs
     - --ignore-glob=tests/Fix.hs
     - --ignore-glob=tests/Unboxed.hs
