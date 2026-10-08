@@ -130,6 +130,7 @@ test:
 	$(TMHS) MD5        && $(EVAL) > MD5.out        && diff MD5.ref MD5.out
 	$(TMHS) Interpolate && $(EVAL) > Interpolate.out && diff Interpolate.ref Interpolate.out
 	$(TMHS) ExtraComma && $(EVAL) > ExtraComma.out && diff ExtraComma.ref ExtraComma.out
+	$(TMHS) RnfNoErr   && $(EVAL) > RnfNoErr.out   && diff RnfNoErr.ref RnfNoErr.out
 	$(TMHS) DerivingBuiltin
 
 .PHONY: testpreprocessorpaths

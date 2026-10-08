@@ -1247,6 +1247,7 @@ find_and_unlink(struct mqueue *mq, struct mthread *mt)
 
 /* This is a yucky hack */
 bool doing_rnf = false;              /* REMOVE */
+jmp_buf rnf_skip;                    /* rnf() without errors: give up evaluating a node */
 #if THREAD_DEBUG
 const bool thread_trace = false;
 #endif  /* THREAD_DEBUG */
@@ -2009,6 +2010,8 @@ thread_intr(struct mthread *mt)
 NORETURN void
 raise_exn(NODEPTR exn)
 {
+  if (doing_rnf)
+    longjmp(rnf_skip, 1);
 #if THREAD_DEBUG
   if (thread_trace) {
     printf("raise_exn: %p\n", exn);
@@ -5163,6 +5166,16 @@ rnf_rec(bits_t *done, NODEPTR n)
   if (test_bit(done, n))
     return;
   set_bit(done, n);
+  if (doing_rnf) {
+    /* If evaluating n raises an exception or does IO, leave n unevaluated.
+     * Returning a partly evaluated node instead (as before) would pass
+     * a value of the wrong type to a primitive. */
+    stackptr_t stk = stack_ptr;
+    if (setjmp(rnf_skip)) {
+      stack_ptr = stk;
+      return;
+    }
+  }
   n = evali(n);
   if (GETTAG(n) == T_AP) {
     PUSH(ARG(n));               /* protect from GC */
@@ -6015,7 +6028,6 @@ evali(NODEPTR an)
     GOPAIRUNIT;
 
   case T_RAISE:
-    if (doing_rnf) RET;
     CHKARG1;
     raise_exn(x);               /* never returns */
 
@@ -6067,7 +6079,7 @@ evali(NODEPTR an)
 
   case T_IO_PERFORMIO:
     GCCHECK(2);
-    if (doing_rnf) RET;
+    if (doing_rnf) longjmp(rnf_skip, 1);
     CHKARG1;
     /* Conjure up a new world and evaluate the io with that world, finally selecting the result */
     /* PERFORMIO io  -->  io World K */
@@ -6172,6 +6184,7 @@ evali(NODEPTR an)
       //printf("  %s\n", FFI_IX(a).ffi_name);
       int arity = FFI_IX(a).ffi_arity;
       CHECK(arity);
+      if (doing_rnf) longjmp(rnf_skip, 1);   /* do not call C from rnf() without errors */
       funptr_t f = FFI_IX(a).ffi_fun;
       PUSH(mkPtr(0));             /* placeholder for result, protected from GC */
       int k = f(stk);             /* call FFI function, return number of arguments */
