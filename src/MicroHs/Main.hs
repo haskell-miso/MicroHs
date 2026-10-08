@@ -27,6 +27,7 @@ import MicroHs.Lex(readInt)
 import MicroHs.List
 import MicroHs.MakeCArray
 import MicroHs.Package
+import MicroHs.Staged.Compile(compileWPO)
 import MicroHs.Translate
 import MicroHs.TypeCheck(TModule(..), showValueExport, showTypeExport, showTypeExportAssocs, TypeExport)
 --import MhsEval
@@ -83,7 +84,7 @@ mHSPKG :: String
 mHSPKG = "MHSPKG"
 
 usage :: String
-usage = "Usage: mhs [-h|?] [--help] [--version] [--numeric-version] [-v] [-q] [-l] [-s] [-r] [-C[R|W][PATH]] [-XCPP] [-DDEF] [-IPATH] [-T] [-z] [-b64] [-iPATH] [-oFILE] [-a[PATH]] [-L[FILE|PKG]] [-PPKG] [-Q PKG [DIR]] [-pFILE] [-tTARGET] [-optc OPTION] [-optl OPTION] [--interactive] [-eEXPR] [-ECMD] [-ddump-PASS] [--embed-packages PKG:...] [--embed-ffis PKG:...] [MODULENAME...|FILE]"
+usage = "Usage: mhs [-h|?] [--help] [--version] [--numeric-version] [-v] [-q] [-l] [-s] [-r] [-C[R|W][PATH]] [-XCPP] [-DDEF] [-IPATH] [-T] [-z] [-b64] [-iPATH] [-oFILE] [-a[PATH]] [-L[FILE|PKG]] [-PPKG] [-Q PKG [DIR]] [-pFILE] [-tTARGET] [-optc OPTION] [-optl OPTION] [--interactive] [-eEXPR] [-ECMD] [-ddump-PASS] [-wpo] [--embed-packages PKG:...] [--embed-ffis PKG:...] [MODULENAME...|FILE]"
 
 longUsage :: String
 longUsage = usage ++ "\nOptions:\n" ++ details
@@ -99,6 +100,7 @@ longUsage = usage ++ "\nOptions:\n" ++ details
       \-c                 Do not generate executable\n\
       \-Dxxx              Pass -Dxxx to cpphs\n\
       \-ddump-PASS        Debug, print AST after PASS\n\
+      \-wpo               Whole program optimization: compile to C with the staged interpreter\n\
       \                   Possible passes: preproc, parse, derive, typecheck, desugar, toplevel, combinator, linked, all\n\
       \-ECMD              Set editor for :edit command\n\
       \-eEXPR             Evaluate EXPR\n\
@@ -150,6 +152,7 @@ decodeArgs f mdls (arg:args) =
     "-l"        -> decodeArgs f{loading = True} mdls args
     "-s"        -> decodeArgs f{speed = True} mdls args
     "-c"        -> decodeArgs f{noLink = True} mdls args
+    "-wpo"      -> decodeArgs f{wpo = True} mdls args
     "-CR"       -> decodeArgs f{readCache = True} mdls args
     "-CW"       -> decodeArgs f{writeCache = True} mdls args
     "-C"        -> decodeArgs f{readCache = True, writeCache = True} mdls args
@@ -390,7 +393,9 @@ mainCompile flags mn = do
     let embedded = concatMap packageModules (getEmbedPkgs cash)
     let (cFFI, hFFI) = makeFFI flags forExps embedded
                                (outDefs : map (packageDefs . snd) embedPkg)
-        cCode = "#include \"mhsffi.h\"\n" ++ makeCArray flags outData ++ cFFI
+    -- With -wpo the program is compiled to C by the staged interpreter
+    cCode <- if wpo flags then compileWPO flags allDefs mainName
+             else return $ "#include \"mhsffi.h\"\n" ++ makeCArray flags outData ++ cFFI
 
     let outFile = output flags
     -- Generate stub file for 'foreign export'

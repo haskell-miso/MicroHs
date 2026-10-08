@@ -43,7 +43,8 @@ data Flags = Flags {
   iPrint     :: Maybe String, -- interactive print function
   config     :: Config,       -- from mhs.config file
   embedFFIs  :: [String],     -- embed FFI stubs from these packages
-  embedPkgs  :: [String]      -- embed these packages
+  embedPkgs  :: [String],     -- embed these packages
+  wpo        :: Bool          -- whole program optimization: compile to C with the staged interpreter
   }
   deriving (Show)
 
@@ -89,10 +90,11 @@ defaultFlags = Flags {
   iPrint      = Nothing,
   config      = [],
   embedFFIs   = [],
-  embedPkgs   = []
+  embedPkgs   = [],
+  wpo         = False
   }
 
-data DumpFlag = Dpreproc | Dparse | Dderive | DexpandInst | Dtypecheck | Ddesugar | Dstage | Dlinked | Dtoplevel | Dcombinator | Dall
+data DumpFlag = Dpreproc | Dparse | Dderive | DexpandInst | Dtypecheck | Ddesugar | Dstage | Dlinked | Dtoplevel | Dcombinator | Dwpo | Dall
   deriving (Eq, Show, Enum, Bounded)
 
 dumpIf :: Monad m => Flags -> DumpFlag -> m () -> m ()
