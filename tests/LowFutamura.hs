@@ -3,129 +3,192 @@ import Data.List(elemIndex)
 import Staged.Low
 import Staged.Low.C(toC)
 
--- The first Futamura projection with two-level type theory: an interpreter
--- for the lambda calculus whose term is a compile time (meta level) value.
--- Applying it to a program runs the interpreter in the compiler, and what is
--- left is low code for that program: the program compiled, with no trace of
--- the interpreter (no terms, environments, or closures).
+-- The first Futamura projection with two-level type theory.
 --
--- Compare tests/LowLambda.hs, where the interpreter has the type
--- Low (Term -> Res): there the term is a run time value, so applying the
--- interpreter to a program specializes nothing.
+-- This is the call by need interpreter of tests/LowLambda.hs with the same
+-- design (a heap of thunks threaded through the evaluator, closures and
+-- thunks as data, a step counter), but with the term at the meta level:
+--
+--   LowLambda:   eval  :: Low (Term -> Res)                    the term is run time data
+--   here:        eval  :: Term -> Low Res                      the term is known at compile time
+--
+-- Applying peval to a program runs the interpreter's traversal of the term in
+-- the compiler, and what is left is low code for that program alone.
+--
+-- Where eval kept a term at run time (in a closure or a thunk), the compiled
+-- code keeps a label instead: the lambda bodies and the arguments of
+-- applications are numbered at compile time, and one low function, run,
+-- dispatches on the label to the compiled code of that term.  Everything
+-- else is as in eval, so the compiled programs compute the same values in
+-- the same number of steps.
 
--- Terms, with de Bruijn indices.  Fix b is a recursive function of one
--- argument: in b, Var 0 is the argument and Var 1 the function itself.
+-- Terms, with de Bruijn indices
 data Term = Var Int | Lam Term | App Term Term
           | Lit Int | Prim Op Term Term | If0 Term Term Term
-          | Fix Term
 
 data Op = Plus | Minus | Times
 
--- Compile time values.  Only integers can be dynamic (known at run time);
--- a function value of the object language is a compile time function.
-data SVal = SLit Int                -- an integer known at compile time
-          | SDyn Bool (Low Int)     -- run time integer code; True if it is a variable,
-                                    -- so it can be used more than once without recomputing it
-          | SFun (SVal -> SVal)     -- an object language closure
+-------------------------------------------------------------------------------
+-- Run time data: as in LowLambda, with labels instead of terms
 
--- The interpreter, at the meta level.  The meta level is lazy Haskell, so an
--- argument is only evaluated when it is used (call by need at compile time).
-peval :: Term -> [SVal] -> SVal
-peval t env =
-  case t of
-    Var n -> env !! n
-    Lam b -> SFun (\ v -> share (uses 0 b) v (\ v' -> peval b (v' : env)))
-    App f a -> apply (peval f env) (peval a env)
-    Lit n -> SLit n
-    Prim o a b -> prim o (peval a env) (peval b env)
-    If0 c a b ->
-      case peval c env of
-        SLit 0 -> peval a env                           -- known condition: choose now
-        SLit _ -> peval b env
-        c' -> SDyn False [| if ~(int c') == 0 then ~(int (peval a env)) else ~(int (peval b env)) |]
-    Fix b ->
-      let self = SFun (\ v ->
-            case v of
-              -- a known argument: unfold the recursion in the compiler
-              SLit _ -> peval b (v : self : env)
-              -- a run time argument: the recursion becomes a low recursive function
-              _ -> SDyn False $ runGen $ do
-                     go <- genRec $ \ go ->
-                             [| \ n -> ~(int (peval b (SDyn True [| n |] : dynFun go : env))) |]
-                     return [| ~go ~(int v) |])
-      in self
+-- An environment: the heap addresses of the variables, innermost first
+data Env = Nil | Bind Int Env
+  deriving (Show)
 
--- Run time code for an integer
-int :: SVal -> Low Int
-int v =
-  case v of
-    SLit n -> lowInt n
-    SDyn _ c -> c
-    SFun _ -> error "peval: a function where an integer was expected"
+-- Values; a closure is its environment and the label of its body
+data Val = VInt Int | VClo Env Int
+  deriving (Show)
 
-apply :: SVal -> SVal -> SVal
-apply f a =
-  case f of
-    SFun g -> g a
-    _ -> error "peval: applying an integer"
+-- A heap cell is an unevaluated thunk (the label of its term and its
+-- environment) or a value
+data Cell = Thunk Int Env | Done Val
 
--- A call of a low recursive function
-dynFun :: Low (Int -> Int) -> SVal
-dynFun go = SFun (\ v -> SDyn False [| ~go ~(int v) |])
+-- Address 1 is the root, address a has children 2a and 2a+1
+data Heap = Empty | Node Heap Cell Heap
 
-prim :: Op -> SVal -> SVal -> SVal
-prim o (SLit x) (SLit y) =
-  SLit (case o of { Plus -> x + y; Minus -> x - y; Times -> x * y })
-prim o a b =
-  SDyn False (case o of
-                Plus  -> [| ~(int a) + ~(int b) |]
-                Minus -> [| ~(int a) - ~(int b) |]
-                Times -> [| ~(int a) * ~(int b) |])
+-- The next free address, the heap, and the number of evaluation steps
+data St = St Int Heap Int
 
--- A run time argument that is used more than once is bound to a variable,
--- so its code is not duplicated.
-share :: Int -> SVal -> (SVal -> SVal) -> SVal
-share n v k =
-  if n < 2 then k v else
-  case v of
-    SDyn False e -> bindDyn e k
-    _ -> k v
-
-bindDyn :: Low Int -> (SVal -> SVal) -> SVal
-bindDyn e k =
-  -- Look at the shape of the result (a dynamic variable cannot change it)
-  case k (SDyn True (lowInt 0)) of
-    SFun _ -> SFun (\ w -> bindDyn e (\ x -> apply (k x) w))
-    r@(SLit _) -> r
-    _ -> SDyn False (genLet e (\ x -> int (k (SDyn True x))))
-
--- How many times a variable occurs; a use inside a recursive function counts
--- as many.
-uses :: Int -> Term -> Int
-uses i t =
-  case t of
-    Var n -> if n == i then 1 else 0
-    Lam b -> uses (i + 1) b
-    App f a -> uses i f + uses i a
-    Lit _ -> 0
-    Prim _ a b -> uses i a + uses i b
-    If0 c a b -> uses i c + uses i a + uses i b
-    Fix b -> 2 * uses (i + 2) b
-
--- The projections: a closed program, and a program of one run time input
-compile0 :: Term -> Low Int
-compile0 t = int (peval t [])
-
-compile1 :: Term -> Low (Int -> Int)
-compile1 t = [| \ n -> ~(int (apply (peval t []) (SDyn True [| n |]))) |]
+data Res = Res Val St
 
 -------------------------------------------------------------------------------
--- Writing terms with names
+-- Compile time
+
+-- Terms whose lambda bodies and application arguments have labels
+data LTerm = LVar Int | LLam Int LTerm | LApp LTerm Int LTerm
+           | LLit Int | LPrim Op LTerm LTerm | LIf0 LTerm LTerm LTerm
+
+-- Number the lambda bodies and application arguments, from n, and collect
+-- them: these are the terms that are evaluated later, through run.
+labelTerm :: Int -> Term -> (LTerm, Int, [(Int, LTerm)])
+labelTerm n t =
+  case t of
+    Var i -> (LVar i, n, [])
+    Lam b ->
+      let (b', n1, bs) = labelTerm (n + 1) b
+      in  (LLam n b', n1, (n, b') : bs)
+    App f x ->
+      let (f', n1, fs) = labelTerm n f
+          (x', n2, xs) = labelTerm (n1 + 1) x
+      in  (LApp f' n1 x', n2, fs ++ (n1, x') : xs)
+    Lit k -> (LLit k, n, [])
+    Prim o a b ->
+      let (a', n1, as) = labelTerm n a
+          (b', n2, bs) = labelTerm n1 b
+      in  (LPrim o a' b', n2, as ++ bs)
+    If0 c a b ->
+      let (c', n1, cs) = labelTerm n c
+          (a', n2, as) = labelTerm n1 a
+          (b', n3, bs) = labelTerm n2 b
+      in  (LIf0 c' a' b', n3, cs ++ as ++ bs)
+
+-- The low functions of a compiled program: the heap operations, the
+-- environment lookup, and the dispatch on labels
+data Rt = Rt (Low (Heap -> Int -> Cell))
+             (Low (Heap -> Int -> Cell -> Heap))
+             (Low (Env -> Int -> Int))
+             (Low (Int -> Env -> St -> Res))
+
+-- The interpreter: LowLambda's ev, with the case on the term at compile time
+peval :: Rt -> LTerm -> Low Env -> Low St -> Low Res
+peval rt t env st =
+  [| case ~st of
+       St next h steps ->
+         let st0 = St next h (steps + 1) in
+         ~(step rt t env [| h |] [| st0 |]) |]
+
+-- One step of ev, on a known term; h is the heap and st0 the state after
+-- counting the step
+step :: Rt -> LTerm -> Low Env -> Low Heap -> Low St -> Low Res
+step rt@(Rt fetch store look run) t env h st0 =
+         case t of
+             LVar n ->
+               [| let a = ~look ~env ~(lowInt n) in
+                  case ~fetch ~h a of
+                    Done v -> Res v ~st0
+                    Thunk l tenv ->
+                      case ~run l tenv ~st0 of                   -- force the thunk ...
+                        Res v st1 ->
+                          case st1 of
+                            St next1 h1 steps1 ->               -- ... and update it with its value
+                              Res v (St next1 (~store h1 a (Done v)) steps1) |]
+             LLam l _ -> [| Res (VClo ~env ~(lowInt l)) ~st0 |]
+             LApp f l x ->
+               [| case ~(peval rt f env st0) of
+                    Res fv st1 ->
+                      case fv of
+                        VClo cenv b ->
+                          case st1 of
+                            St next1 h1 steps1 ->               -- allocate a thunk for the argument
+                              ~run b (Bind next1 cenv)
+                                     (St (next1 + 1) (~store h1 next1 (Thunk ~(lowInt l) ~env)) steps1) |]
+             LLit k -> [| Res (VInt ~(lowInt k)) ~st0 |]
+             LPrim o a b ->
+               [| case ~(peval rt a env st0) of
+                    Res vx st1 ->
+                      case vx of
+                        VInt i ->
+                          case ~(peval rt b env [| st1 |]) of
+                            Res vy st2 ->
+                              case vy of
+                                VInt j -> Res (VInt ~(prim o [| i |] [| j |])) st2 |]
+             LIf0 c a b ->
+               [| case ~(peval rt c env st0) of
+                    Res vc st1 ->
+                      case vc of
+                        VInt i -> if i == 0 then ~(peval rt a env [| st1 |])
+                                            else ~(peval rt b env [| st1 |]) |]
+
+prim :: Op -> Low Int -> Low Int -> Low Int
+prim o x y =
+  case o of
+    Plus  -> [| ~x + ~y |]
+    Minus -> [| ~x - ~y |]
+    Times -> [| ~x * ~y |]
+
+-- The body of run: the compiled code of every labelled term
+dispatch :: Rt -> [(Int, LTerm)] -> Low Int -> Low Env -> Low St -> Low Res
+dispatch rt blocks l env st =
+  case blocks of
+    [] -> [| Res (VInt 0) ~st |]                  -- no labels: run is never called
+    [(_, b)] -> peval rt b env st
+    (k, b) : bs -> [| if ~l == ~(lowInt k) then ~(peval rt b env st)
+                                           else ~(dispatch rt bs l env st) |]
+
+-- The low functions, then the program
+withRt :: Term -> (Rt -> LTerm -> Low Res) -> Low Res
+withRt t body =
+  let (lt, _, blocks) = labelTerm 0 t in
+  runGen $ do
+    fetch <- genRec $ \ fetch -> [| \ h a ->
+               case h of
+                 Node l c r -> if a == 1 then c
+                               else if a - 2 * (a `quot` 2) == 0 then ~fetch l (a `quot` 2)
+                               else ~fetch r (a `quot` 2) |]
+    store <- genRec $ \ store -> [| \ h a c ->
+               case h of
+                 Empty -> Node Empty c Empty
+                 Node l c0 r -> if a == 1 then Node l c r
+                                else if a - 2 * (a `quot` 2) == 0 then Node (~store l (a `quot` 2) c) c0 r
+                                else Node l c0 (~store r (a `quot` 2) c) |]
+    look <- genRec $ \ look -> [| \ env n ->
+               case env of
+                 Bind a r -> if n == 0 then a else ~look r (n - 1) |]
+    run <- genRec $ \ run -> [| \ l env st ->
+               ~(dispatch (Rt fetch store look run) blocks [| l |] [| env |] [| st |]) |]
+    return (body (Rt fetch store look run) lt)
+
+-- The staged interpreter: a program, known at compile time, to low code
+-- that runs it with call by need
+eval :: Term -> Low Res
+eval t = withRt t $ \ rt lt -> peval rt lt [| Nil |] [| St 1 Empty 0 |]
+
+-------------------------------------------------------------------------------
+-- Writing terms with names, as in LowLambda
 
 data Named = V String | L String Named | Named :@ Named
            | N Int | Named :+ Named | Named :- Named | Named :* Named
            | IfZ Named Named Named
-           | Rec String String Named      -- Rec f x body: a recursive function
 infixl 9 :@
 infixl 6 :+, :-
 infixl 7 :*
@@ -143,59 +206,68 @@ deBruijn = go []
         a :- b    -> Prim Minus (go vs a) (go vs b)
         a :* b    -> Prim Times (go vs a) (go vs b)
         IfZ c a b -> If0 (go vs c) (go vs a) (go vs b)
-        Rec f x b -> Fix (go (x : f : vs) b)
 
 omega :: Named
 omega = w :@ w
   where w = L "x" (V "x" :@ V "x")
 
--- The lazy fixed point combinator
+church :: Int -> Named
+church n = L "f" (L "x" (iterate (V "f" :@) (V "x") !! n))
+
+plusC, timesC, toInt :: Named
+plusC  = L "m" (L "n" (L "f" (L "x" (V "m" :@ V "f" :@ (V "n" :@ V "f" :@ V "x")))))
+timesC = L "m" (L "n" (L "f" (V "m" :@ (V "n" :@ V "f"))))
+toInt  = L "c" (V "c" :@ L "k" (V "k" :+ N 1) :@ N 0)
+
+-- The (lazy) fixed point combinator Y, which loops under call by value
 fixY :: Named
 fixY = L "f" (w :@ w)
   where w = L "x" (V "f" :@ (V "x" :@ V "x"))
 
-factorialRec, factorialY, fibonacciRec, square1, shared :: Named
-factorialRec = Rec "fact" "n" (IfZ (V "n") (N 1) (V "n" :* (V "fact" :@ (V "n" :- N 1))))
-factorialY = fixY :@ L "fact" (L "n" (IfZ (V "n") (N 1) (V "n" :* (V "fact" :@ (V "n" :- N 1)))))
-fibonacciRec = Rec "fib" "n"
-                 (IfZ (V "n") (N 0)
-                   (IfZ (V "n" :- N 1) (N 1)
-                     (V "fib" :@ (V "n" :- N 1) :+ V "fib" :@ (V "n" :- N 2))))
-square1 = L "x" (V "x" :* V "x" :+ N 1)
-shared = L "x" (L "y" (V "y" :+ V "y") :@ (V "x" :* V "x"))
+factorial, fibonacci, spin :: Named
+factorial = fixY :@ L "fact" (L "n" (IfZ (V "n") (N 1) (V "n" :* (V "fact" :@ (V "n" :- N 1)))))
+fibonacci = fixY :@ L "fib" (L "n"
+              (IfZ (V "n") (N 0)
+                (IfZ (V "n" :- N 1) (N 1)
+                  (V "fib" :@ (V "n" :- N 1) :+ V "fib" :@ (V "n" :- N 2)))))
+spin = fixY :@ L "f" (L "m" (V "f" :@ V "m"))         -- never returns
 
--- Run time code: the compiled programs are spliced in.
-factorialC, fibonacciC, square1C, sharedC :: Int -> Int
-factorialC = compile1 (deBruijn factorialRec)
-fibonacciC = compile1 (deBruijn fibonacciRec)
-square1C = compile1 (deBruijn square1)
-sharedC = compile1 (deBruijn shared)
+-- Compiled programs: the interpreter applied to a program at compile time
+pfactorial :: Low Res
+pfactorial = eval (deBruijn factorial)
 
-lazyC, factorial10C, factorialY10C :: Int
-lazyC = compile0 (deBruijn (L "x" (N 42) :@ omega))
-factorial10C = compile0 (deBruijn (factorialRec :@ N 10))
-factorialY10C = compile0 (deBruijn (factorialY :@ N 10))
+pfactorial10 :: Low Res
+pfactorial10 = eval (deBruijn (factorial :@ N 10))
+
+pfibonacci :: Low Res
+pfibonacci = eval (deBruijn (fibonacci :@ N 15))
+
+pchurch :: Low Res
+pchurch = eval (deBruijn (toInt :@ (timesC :@ church 6 :@ church 7)))
+
+-- call by need: the argument is never evaluated
+plazy :: Low Res
+plazy = eval (deBruijn (L "x" (N 42) :@ omega))
+
+-- call by need: the argument loops, but it is only needed if the condition is not 0
+pneed :: Low Res
+pneed = eval (deBruijn (L "x" (IfZ (N 0) (N 0) (V "x" :+ V "x")) :@ (spin :@ N 1)))
+
+-- Show a value and the number of evaluation steps, as LowLambda does
+report :: String -> Res -> IO ()
+report name r =
+  case r of
+    Res v (St _ _ steps) -> putStrLn (name ++ " = " ++ show v ++ "  (" ++ show steps ++ " steps)")
 
 main :: IO ()
 main = do
-  putStrLn "---- factorial, compiled (reflected)"
-  putStr (lowString (lowPretty (reflect (compile1 (deBruijn factorialRec)))))
-  putStrLn "---- factorial, compiled to C"
-  putStr (lowString (toC "factorial" (reflect (compile1 (deBruijn factorialRec)))))
-  putStrLn "---- fib, compiled (reflected)"
-  putStr (lowString (lowPretty (reflect (compile1 (deBruijn fibonacciRec)))))
-  putStrLn "---- \\ x -> x * x + 1, compiled: straight line code"
-  putStr (lowString (lowPretty (reflect (compile1 (deBruijn square1)))))
-  putStrLn "---- \\ x -> (\\ y -> y + y) (x * x), compiled: the argument is shared"
-  putStr (lowString (lowPretty (reflect (compile1 (deBruijn shared)))))
-  putStrLn "---- factorial 10, compiled: computed by the compiler"
-  putStr (lowString (lowPretty (reflect (compile0 (deBruijn (factorialRec :@ N 10))))))
-  putStrLn "---- factorial 10 with the Y combinator, compiled: lazy at compile time"
-  putStr (lowString (lowPretty (reflect (compile0 (deBruijn (factorialY :@ N 10))))))
-  putStrLn "---- (\\ x -> 42) omega, compiled: omega is never evaluated"
-  putStr (lowString (lowPretty (reflect (compile0 (deBruijn (L "x" (N 42) :@ omega))))))
-  putStrLn "---- run"
-  print (map factorialC [0, 1, 5, 10], factorialC 10 == product [1 .. 10])
-  print (map fibonacciC [0, 1, 2, 15])
-  print (square1C 7, sharedC 3)
-  print (lazyC, factorial10C, factorialY10C)
+  putStrLn "---- pfactorial = eval (deBruijn factorial), reflected"
+  putStr (lowString (lowPretty (reflect pfactorial)))
+  putStrLn "---- pfactorial, C"
+  putStr (lowString (toC "pfactorial" (reflect pfactorial)))
+  putStrLn "---- run (the same values and steps as LowLambda's interpreter)"
+  report "factorial 10 (Y)" pfactorial10
+  report "fib 15 (Y)" pfibonacci
+  report "6 * 7 (Church)" pchurch
+  report "(\\ x -> 42) omega" plazy
+  report "(\\ x -> if0 0 then 0 else x + x) (spin 1)" pneed
