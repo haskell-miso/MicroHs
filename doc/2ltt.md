@@ -277,6 +277,15 @@ lambda calculus as low code, without quotations or splices.  Closures and
 thunks are data (an environment and a term), and the heap of thunks is
 threaded through the interpreter (store passing, as in Launchbury's natural
 semantics), so the interpreter compiles to first order C.
+`tests/LowFutamura.hs` is the first Futamura projection: the same interpreter
+with the term at the meta level (`peval :: Term -> [SVal] -> SVal`), so
+applying it to a program runs the interpreter in the compiler and leaves low
+code for the program alone.  Factorial compiles to a single recursive C
+function, a non-recursive program to straight line code, and a program whose
+input is known (`factorial 10`) to a constant.  Object level closures are
+compile time functions and call by need comes from the lazy meta level;
+recursion on a run time value needs the `Fix` term, which becomes a `genRec`
+loop (unfolding the Y combinator on a run time value would not terminate).
 `tests/lowerr.test` shows the error messages.
 
 ### Not done, and recommendations

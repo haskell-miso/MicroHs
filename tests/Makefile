@@ -193,6 +193,7 @@ stagedtest:
 	$(TMHS) Low2       && $(EVAL) > Low2.out       && diff Low2.ref Low2.out
 	$(TMHS) Low3       && $(EVAL) > Low3.out       && diff Low3.ref Low3.out
 	$(TMHS) LowLambda  && $(EVAL) > LowLambda.out  && diff LowLambda.ref LowLambda.out
+	$(TMHS) LowFutamura && $(EVAL) > LowFutamura.out && diff LowFutamura.ref LowFutamura.out
 	sh errtester.sh $(MHS) < lowerr.test
 	$(TMHS) --stdin < istaged.in | sed -e '1,/^>/d' > istaged.out && diff istaged.ref istaged.out
 
