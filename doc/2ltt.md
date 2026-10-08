@@ -277,15 +277,18 @@ lambda calculus as low code, without quotations or splices.  Closures and
 thunks are data (an environment and a term), and the heap of thunks is
 threaded through the interpreter (store passing, as in Launchbury's natural
 semantics), so the interpreter compiles to first order C.
-`tests/LowFutamura.hs` is the first Futamura projection: the same interpreter
-with the term at the meta level (`peval :: Term -> [SVal] -> SVal`), so
-applying it to a program runs the interpreter in the compiler and leaves low
-code for the program alone.  Factorial compiles to a single recursive C
-function, a non-recursive program to straight line code, and a program whose
-input is known (`factorial 10`) to a constant.  Object level closures are
-compile time functions and call by need comes from the lazy meta level;
-recursion on a run time value needs the `Fix` term, which becomes a `genRec`
-loop (unfolding the Y combinator on a run time value would not terminate).
+`tests/LowFutamura.hs` is the first Futamura projection: LowLambda's
+interpreter with the same design and call by need semantics, but with the
+term at the meta level (`eval :: Term -> Low Res` instead of
+`eval :: Low (Term -> Res)`).  Applying it to a program runs the traversal
+of the term in the compiler: `pfactorial = eval (deBruijn factorial)` is
+factorial compiled, and `tests/LowFutamura.pfactorial.c` is its C code.  Where `eval` kept a term at run time
+(in a closure or a thunk), the compiled code keeps a label, and one low
+function dispatches on labels to the compiled code of the lambda bodies and
+arguments.  The compiled programs compute the same values in the same
+number of steps as the interpreter.  The staged interpreter needs explicit
+quotations and splices, because its run time `case`s (on the state, values, and heap cells)
+are in a meta level function, and a `case` on code is not inferred yet.
 `tests/lowerr.test` shows the error messages.
 
 ### Not done, and recommendations
