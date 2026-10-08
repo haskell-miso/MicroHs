@@ -24,24 +24,33 @@ import MicroHs.Expr(Lit(..))
 import MicroHs.Ident
 import qualified MicroHs.IdentMap as M
 
--- The combinator code of the definitions of a program
+-- The definitions of a program; each is decoded (lazily) the first time it
+-- is used
 newtype Defs = Defs (M.Map Exp)
 
 mkDefs :: [LDef] -> Defs
-mkDefs ds = Defs (M.fromList ds)
+mkDefs ds = Defs (M.fromList [ (i, decodeDef i e) | (i, e) <- ds ])
 
 -- The decoded definition of a name, if it has one
 lookupDef :: Ident -> Defs -> Maybe Exp
-lookupDef i (Defs m) = decode <$> M.lookup i m
+lookupDef i (Defs m) = M.lookup i m
 
 -- Replace the combinators of an expression by lambda expressions
 decode :: Exp -> Exp
-decode e =
-  case e of
-    App f a -> App (decode f) (decode a)
-    Lam i b -> Lam i (decode b)
-    Lit (LPrim p) | Just l <- combinator p -> l
-    _ -> e
+decode = decodeDef (mkIdent "")
+
+-- Replace the combinators of a definition by lambda expressions.  Every
+-- lambda gets binders of its own (named after the definition and the
+-- position of the combinator), so a lambda is identified by its first binder.
+decodeDef :: Ident -> Exp -> Exp
+decodeDef i e0 = fst (go e0 (0 :: Int))
+  where
+    go e n =
+      case e of
+        App f a -> let (f', n1) = go f n; (a', n2) = go a n1 in (App f' a', n2)
+        Lam x b -> let (b', n1) = go b n in (Lam x b', n1)
+        Lit (LPrim p) | Just l <- combinator (showIdent i ++ "$" ++ show n ++ "$") p -> (l, n + 1)
+        _ -> (e, n)
 
 -- The definitions reachable from a name (for -ddump-wpo)
 reachable :: Defs -> Ident -> [(Ident, Exp)]
@@ -56,8 +65,8 @@ reachable defs i0 = go [] [i0]
             Just e -> go ((i, e) : done) (is ++ nub (freeVars e))
 
 -- A combinator as a lambda expression, with the rule of the runtime system
-combinator :: String -> Maybe Exp
-combinator p =
+combinator :: String -> String -> Maybe Exp
+combinator pre p =
   case p of
     "S"   -> Just $ lam "xyz"   $ app [x, z, app [y, z]]
     "S'"  -> Just $ lam "xyzw"  $ app [x, app [y, w], app [z, w]]
@@ -90,7 +99,7 @@ combinator p =
       Just $ lam "xy" $ app [y, Lit (LInt k), x]
     _ -> Nothing
   where
-    v s = Var (mkIdent ("wpo$" ++ s))
+    v s = Var (mkIdent ("wpo$" ++ pre ++ s))
     vi (Var i) = i
     vi _ = undefined
     x = v "x"; y = v "y"; z = v "z"; w = v "w"

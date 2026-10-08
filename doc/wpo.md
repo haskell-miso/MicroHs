@@ -88,7 +88,29 @@ also tell the garbage collector about the nodes it holds.
 ## Status
 
 * Done: the `-wpo` flag, `-ddump-wpo`, decoding.
-* Next: the interpreter for the pure core, then IO and foreign calls
-  (`main = print (fib 25)` with the same output as the combinator
-  compilation), then lazy data (`print (fibs !! 40)`), then the rest of the
-  primitives.
+* Milestone 2 (in progress): the interpreter for the pure core with
+  integers, conditionals, recursion and foreign calls.  For
+
+  ```haskell
+  fib n = if n < 2 then n else fib (n - 1) + fib (n - 2)
+  printNum n = if n >= 10 then printNum (n `quot` 10) >> c_putchar (48 + n `rem` 10) else c_putchar (48 + n)
+  main = printNum (fib 25) >> c_putchar 10
+  ```
+
+  the C is one function for `fib` and one for `printNum` (on machine words)
+  and `main` calls them; the output is the same as with combinators.  How
+  it gets there:
+  * a strictness probe: a closure applied to an argument with run time
+    values is evaluated with the argument bound to a probe; if every path
+    forces the probe, the argument is evaluated first (a C value, not a
+    thunk);
+  * static recursion (a lambda unfolded `whistle` times inside itself, like
+    `fib 25`) restarts at the outermost of those applications with what
+    differs generalized to run time values, so it becomes a C function
+    instead of being computed by the compiler;
+  * an IO action that has not been evaluated is evaluated and run at once,
+    so a conditional in an IO action runs its branches.
+* Next: run time data (constructors), the primitives that `print` needs
+  (`Show`, handles, UTF-8), then lazy data (`print (fibs !! 40)`).
+* `tests/wpo.sh` runs the tests of `tests/Makefile` with `-wpo` and compares
+  with the `.ref` files.

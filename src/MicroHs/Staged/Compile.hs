@@ -16,6 +16,7 @@ import MicroHs.Expr(Lit(..), showLit)
 import MicroHs.Flags
 import MicroHs.Ident
 import MicroHs.Staged.Decode
+import MicroHs.Staged.Eval
 
 -- Compile the program whose main is the given name to C
 compileWPO :: Flags -> [LDef] -> Ident -> IO String
@@ -26,7 +27,7 @@ compileWPO flags allDefs mainName = do
     putStrLn ("wpo: " ++ show (length reach) ++ " definitions reachable from " ++ showIdent mainName)
     mapM_ (\ (i, e) -> putStrLn (showIdent i ++ " = " ++ showE 0 e "")) reach
     putStrLn ("wpo: primitives used: " ++ unwords (nub (concatMap (prims . snd) reach)))
-  error "mhs -wpo: code generation is not implemented yet"
+  return (evalProgram defs mainName)
 
 -- Print a decoded expression (lambda calculus)
 showE :: Int -> Exp -> ShowS

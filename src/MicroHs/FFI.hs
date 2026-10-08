@@ -1,4 +1,4 @@
-module MicroHs.FFI(makeFFI) where
+module MicroHs.FFI(makeFFI, ffiSignature) where
 import qualified Prelude(); import MHSPrelude
 import Data.Char
 import Data.List
@@ -110,6 +110,14 @@ mkEntry _ = undefined
 
 mkMhsFun :: String -> String -> String
 mkMhsFun fn body = "from_t mhs_" ++ fn ++ "(int s) { " ++ body ++ "; }"
+
+-- The C signature of a foreign import, for a direct call (mhs -wpo):
+-- the C types of the arguments and of the result, and whether it is in IO
+ffiSignature :: CType -> ([String], String, Bool)
+ffiSignature (CType t) =
+  let (as, ior) = getArrows t
+      r = checkIO ior
+  in  (map cTypeName as, cTypeName r, not (eqEType r ior))
 
 checkIO :: EType -> EType
 checkIO iot =
