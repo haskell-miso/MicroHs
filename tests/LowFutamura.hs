@@ -524,7 +524,7 @@ main = do
   putStr (lowString (lowPretty (reflect (evalInt (deBruijn (toInt :@ (timesC :@ church 6 :@ church 7)))))))
   putStr (lowString (lowPretty (reflect (evalInt (deBruijn (L "x" (N 42) :@ omega))))))
   putStrLn "---- run"
-  print (map factorialC [0, 1, 5, 10, 20])
+  print (map factorialC [0, 1, 5, 10, 12])        -- 12! is the largest that fits a 32 bit Int
   print (map fibonacciC [0, 1, 2, 15])
   print (needC 0, shareC 15)
   print (factorial10C, churchC, lazyC)
