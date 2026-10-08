@@ -301,7 +301,11 @@ still compile time values), it captures only run time values, and one low
 function dispatches on the code number.  Forcing a cell updates it (call by
 need), letrec ties a knot in the heap, and a delayed argument of a recursive
 function is a run time thunk shared by all its calls.  The compiled program
-takes linear time (`tests/LowFutamuraLazy.pfibs.c` is its C code).
+takes linear time.  The heap operations and the code of the thunks are one
+low function (`rt 0 a` forces a cell, `rt (c + 1)` runs thunk code `c`), calls
+in tail position are tail calls, and `tests/LowCompactC.hs` prints compact C
+from the low code; since the heap state is used linearly, it can also print
+it as a global mutable heap (`tests/LowFutamuraLazy.pfibs.c`, 81 lines).
 `tests/lowerr.test` shows the error messages.
 
 ### Not done, and recommendations
