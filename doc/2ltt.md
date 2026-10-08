@@ -277,18 +277,21 @@ lambda calculus as low code, without quotations or splices.  Closures and
 thunks are data (an environment and a term), and the heap of thunks is
 threaded through the interpreter (store passing, as in Launchbury's natural
 semantics), so the interpreter compiles to first order C.
-`tests/LowFutamura.hs` is the first Futamura projection: LowLambda's
-interpreter with the same design and call by need semantics, but with the
-term at the meta level (`eval :: Term -> Low Res` instead of
-`eval :: Low (Term -> Res)`).  Applying it to a program runs the traversal
-of the term in the compiler: `pfactorial = eval (deBruijn factorial)` is
-factorial compiled, and `tests/LowFutamura.pfactorial.c` is its C code.  Where `eval` kept a term at run time
-(in a closure or a thunk), the compiled code keeps a label, and one low
-function dispatches on labels to the compiled code of the lambda bodies and
-arguments.  The compiled programs compute the same values in the same
-number of steps as the interpreter.  The staged interpreter needs explicit
-quotations and splices, because its run time `case`s (on the state, values, and heap cells)
-are in a meta level function, and a `case` on code is not inferred yet.
+`tests/LowFutamura.hs` is the first Futamura projection, Jones optimal and
+with call by need: the lambda calculus interpreter runs at compile time on a
+known program and leaves low code for the program alone.
+`pfactorial = evalFun (deBruijn factorial)` (the Y combinator applied to
+`\ fact n -> ...`) compiles to the factorial function you would write by
+hand, with no terms, environments, closures, heap, or dispatch left
+(`tests/LowFutamura.pfactorial.c` is its C code).  Closures and thunks are
+compile time values (labels, with environments trimmed to their free
+variables, and equal terms have equal labels); call by need is resolved at
+compile time (a thunk is evaluated where a path first needs it and reused
+after that, a variable argument shares its thunk, and a strict function gets
+its argument evaluated first); recursion through run time integers becomes
+a recursive low function, found by running the compiler in an analysis mode
+first.  Not done: a thunk passed to a recursive function that is not strict
+in it is evaluated once per call that needs it, not once for all calls.
 `tests/lowerr.test` shows the error messages.
 
 ### Not done, and recommendations
