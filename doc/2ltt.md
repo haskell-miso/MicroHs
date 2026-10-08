@@ -141,7 +141,9 @@ The rules, in `stageCoercion`:
 * `f $ x` is treated as `f x`.
 * A definition whose stage is not known yet (no `Code` in its signature) is
   fixed to the object level when its body is a meta level application with a
-  code result, checked against a type that is not code, as for `cube`.
+  code result, checked against a type that is not code, as for `cube`, or an
+  applied meta level code variable checked against such a type, as for
+  `run t = eval [] t` with `eval :: Low ([Val] -> Term -> Val)`.
 
 A coercion is only inserted where checking the expression as written would
 fail, so it never changes the meaning of a program that type checks without
@@ -270,6 +272,11 @@ code), so only use it at the end of a generator.
 output) and `tests/Low3.hs` (the paper's pull streams with an existential
 state type, fused into a single loop also for `zipWith`; the `MaybeT`
 binding time improvement of section 3.3; a foreign C function).
+`tests/LowLambda.hs` is a call by need (lazy) interpreter for the untyped
+lambda calculus as low code, without quotations or splices.  Closures and
+thunks are data (an environment and a term), and the heap of thunks is
+threaded through the interpreter (store passing, as in Launchbury's natural
+semantics), so the interpreter compiles to first order C.
 `tests/lowerr.test` shows the error messages.
 
 ### Not done, and recommendations

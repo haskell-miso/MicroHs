@@ -4374,6 +4374,10 @@ stageCoercionApp mt ae hd args = do
             if s && notCode then do
               unifyLevel (getSLoc ae) "a splice" LObj cur
               return (Just (ESplice Nothing ae))
+             else if appliedCode && notCode then do
+              -- Likewise applied code:  c a1 .. an  ~~>  ~c a1 .. an
+              unifyLevel (getSLoc ae) "a splice" LObj cur
+              return (Just (eApps (ESplice Nothing hd) args))
              else
               return Nothing
           _ -> return Nothing
