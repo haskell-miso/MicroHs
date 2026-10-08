@@ -1,8 +1,9 @@
 module LowFutamuraLazy(main) where
 import Data.List(elemIndex, nub)
-import Data.Maybe(isJust)
+import Data.Maybe(isJust, isNothing)
 import Staged.Low
 import Staged.Low.C(toC)
+import LowCompactC(toCompactC)
 
 -- The first Futamura projection of a call by need interpreter, for programs
 -- with lazy data structures (lists), with call by need kept.
@@ -305,19 +306,32 @@ data Ops r = Ops
   , oJoin   :: (Low RV -> Low St -> r) -> ((Low RV -> Low St -> r) -> r) -> r  -- a join point
   , oFun    :: Int -> (Fn -> [Low Int] -> Low St -> r) -> (Fn -> r) -> r     -- a recursive function
   , oCall   :: Fn -> [Low Int] -> Low St -> (Low RV -> Low St -> r) -> r     -- call it
+  , oTail   :: Fn -> [Low Int] -> Low St -> r                                -- call it in tail position
   , oRet    :: Low RV -> Low St -> r                                         -- return
   , oForce  :: Low Int -> Low St -> (Low RV -> Low St -> r) -> r             -- force a cell
+  , oForceT :: Low Int -> Low St -> r                                        -- force it in tail position
   , oAlloc  :: Low Cell -> Low St -> (Low Int -> Low St -> r) -> r           -- allocate a cell
   , oSet    :: Low Int -> Low Cell -> Low St -> (Low St -> r) -> r           -- update a cell
   , oUncons :: Low Ints -> (Low Int -> Low Ints -> r) -> r                   -- take a capture
   , oItem   :: Item -> r -> r                                                -- an item found
   }
 
--- The low functions of the run time system
-data Rt = Rt (Low (Heap -> Int -> Cell)) (Low (Heap -> Int -> Cell -> Heap)) (Low (Int -> Ints -> St -> Res))
+-- The low functions of the run time system: the heap update, and rt, which
+-- forces a cell (rt 0 a INil st) or runs the code of a thunk (rt (c + 1) 0
+-- captures st)
+data Rt = Rt (Low (Heap -> Int -> Cell -> Heap)) (Low (Int -> Int -> Ints -> St -> Res))
+
+callFn :: Fn -> [Low Int] -> Low St -> Low Res
+callFn fn ps st =
+  case (fn, ps) of
+    (Fn0 f, []) -> [| ~f ~st |]
+    (Fn1 f, [a]) -> [| ~f ~a ~st |]
+    (Fn2 f, [a, b]) -> [| ~f ~a ~b ~st |]
+    (Fn3 f, [a, b, c]) -> [| ~f ~a ~b ~c ~st |]
+    _ -> error "callFn"
 
 genOps :: Rt -> Ops (Low Res)
-genOps (Rt fetch store run) = Ops
+genOps (Rt store rt) = Ops
   { oLetI = \ e k -> [| let x = ~e in ~(k [| x |]) |]
   , oLetV = \ e k -> [| let x = ~e in ~(k [| x |]) |]
   , oIf = \ c a b -> [| if ~c == 0 then ~a else ~b |]
@@ -331,24 +345,11 @@ genOps (Rt fetch store run) = Ops
         2 -> [| let f = \ a b s -> ~(body (Fn2 [| f |]) [[| a |], [| b |]] [| s |]) in ~(rest (Fn2 [| f |])) |]
         3 -> [| let f = \ a b c s -> ~(body (Fn3 [| f |]) [[| a |], [| b |], [| c |]] [| s |]) in ~(rest (Fn3 [| f |])) |]
         _ -> error "peval: a recursive function with more than 3 run time arguments"
-  , oCall = \ fn ps st k ->
-      let call :: Low Res
-          call = case (fn, ps) of
-                   (Fn0 f, []) -> [| ~f ~st |]
-                   (Fn1 f, [a]) -> [| ~f ~a ~st |]
-                   (Fn2 f, [a, b]) -> [| ~f ~a ~b ~st |]
-                   (Fn3 f, [a, b, c]) -> [| ~f ~a ~b ~c ~st |]
-                   _ -> error "call"
-      in  [| case ~call of Res v s -> ~(k [| v |] [| s |]) |]
+  , oCall = \ fn ps st k -> [| case ~(callFn fn ps st) of Res v s -> ~(k [| v |] [| s |]) |]
+  , oTail = callFn
   , oRet = \ v st -> [| Res ~v ~st |]
-  , oForce = \ a st k ->
-      [| let j = \ v s -> ~(k [| v |] [| s |]) in
-         case ~st of
-           St _ h -> case ~fetch h ~a of
-                       Done v -> j v ~st
-                       Thunk c cs -> case ~run c cs ~st of
-                                       Res v st1 -> case st1 of
-                                         St n1 h1 -> j v (St n1 (~store h1 ~a (Done v))) |]
+  , oForce = \ a st k -> [| case ~rt 0 ~a INil ~st of Res v s -> ~(k [| v |] [| s |]) |]
+  , oForceT = \ a st -> [| ~rt 0 ~a INil ~st |]
   , oAlloc = \ cell st k ->
       [| case ~st of St next h -> let s1 = St (next + 1) (~store h next ~cell) in ~(k [| next |] [| s1 |]) |]
   , oSet = \ a cell st k ->
@@ -369,8 +370,10 @@ anaOps = Ops
   , oJoin = \ k body -> k dv ds ++ body (\ _ _ -> [])
   , oFun = \ n body rest -> let fn = dummyFn n in body fn (replicate n di) ds ++ rest fn
   , oCall = \ _ _ _ k -> k dv ds
+  , oTail = \ _ _ _ -> []
   , oRet = \ _ _ -> []
   , oForce = \ _ _ k -> k dv ds
+  , oForceT = \ _ _ -> []
   , oAlloc = \ _ _ k -> k di ds
   , oSet = \ _ _ _ k -> k ds
   , oUncons = \ _ k -> k di [| INil |]
@@ -387,6 +390,18 @@ anaOps = Ops
                       1 -> Fn1 [| \ a s -> Res RNil s |]
                       2 -> Fn2 [| \ a b s -> Res RNil s |]
                       _ -> Fn3 [| \ a b c s -> Res RNil s |]
+
+-- Where the value of a term in tail position goes: returned (from a
+-- recursive function or the code of a thunk), or passed to a join point
+data K r = KRet | KJoin (Low RV -> Low St -> r)
+
+jump :: Ops r -> K r -> Low RV -> Low St -> r
+jump o k v st = case k of { KRet -> oRet o v st; KJoin f -> f v st }
+
+-- Call a recursive function in tail position: a tail call, or a call
+-- followed by the join point
+callK :: Ops r -> K r -> Fn -> [Low Int] -> Low St -> r
+callK o k fn ps st = case k of { KRet -> oTail o fn ps st; KJoin f -> oCall o fn ps st f }
 
 -- The context: what to do with code, the items of the analysis, the terms of
 -- the labels, and the numbers of the thunk codes
@@ -512,7 +527,7 @@ eval t env =
     LApp _ _ _ -> do
       let (h, args) = spine t
       fv <- eval h env
-      applyAll fv args env
+      applyAll fv args 0 env
     LLit n -> pure (VInt n)
     LPrim o a b -> do
       x <- eval a env
@@ -527,8 +542,8 @@ eval t env =
         VInt _ -> eval b env
         _ -> do
           ci <- intOf cv
-          branch (\ ctx gs ret -> oIf (ops ctx) ci (evalT a env ctx gs ret) (evalT b env ctx gs ret))
-    LNil -> bindRV [| RNil |]
+          branch (\ ctx gs k -> oIf (ops ctx) ci (evalT a env ctx gs k) (evalT b env ctx gs k))
+    LNil -> G $ \ _ gs k -> let (i, gs1) = fresh gs in k (VRV i [| RNil |]) gs1
     LCons lh h lr r -> do
       ha <- field lh h env
       ra <- field lr r env
@@ -538,30 +553,34 @@ eval t env =
       case sv of
         VRV _ x -> branch (caseOn x n c env)
         _ -> error "peval: case on a value that is not a list"
-    LLetrec l b body ->
-      case b of
-        LLam _ _ -> eval body (EFix l b env : env)
-        _ -> do
-          -- a knot in the heap: the cell's thunk captures the cell itself
-          a <- alloc [| Done RNil |]
-          i <- newId
-          let env' = ERef i a : env
-          cell <- thunkCell l b env'
-          setCell a cell
-          eval body env'
+    LLetrec l b body -> letrec l b env >>= eval body
+
+-- The environment of the body of a letrec: a recursive function, or a knot
+-- in the heap (a cell whose thunk captures the cell itself)
+letrec :: Int -> LTerm -> [E] -> G r [E]
+letrec l b env =
+  case b of
+    LLam _ _ -> pure (EFix l b env : env)
+    _ -> do
+      a <- alloc [| Done RNil |]
+      i <- newId
+      let env' = ERef i a : env
+      cell <- thunkCell l b env'
+      setCell a cell
+      pure env'
 
 -- A case on a run time list, with the branches in tail position
-caseOn :: Low RV -> LTerm -> LTerm -> [E] -> Ctx r -> GS -> (Low RV -> Low St -> r) -> r
-caseOn x n c env ctx gs ret =
-  oCase (ops ctx) x (evalT n env ctx gs ret)
+caseOn :: Low RV -> LTerm -> LTerm -> [E] -> Ctx r -> GS -> K r -> r
+caseOn x n c env ctx gs k =
+  oCase (ops ctx) x (evalT n env ctx gs k)
         (\ h tl -> let (ih, gs1) = fresh gs
                        (it, gs2) = fresh gs1
-                   in  evalT c (ERef it tl : ERef ih h : env) ctx gs2 ret)
+                   in  evalT c (ERef it tl : ERef ih h : env) ctx gs2 k)
 
 -- A conditional on run time values: the code after it is a join point
-branch :: (Ctx r -> GS -> (Low RV -> Low St -> r) -> r) -> G r V
+branch :: (Ctx r -> GS -> K r -> r) -> G r V
 branch alts = G $ \ ctx gs@(GS i m fs as _) k ->
-  oJoin (ops ctx) (\ v s -> k (VRV i v) (GS (i + 1) m fs as s)) (\ j -> alts ctx gs j)
+  oJoin (ops ctx) (\ v s -> k (VRV i v) (GS (i + 1) m fs as s)) (\ j -> alts ctx gs (KJoin j))
 
 -- A constructor field: the address of a cell
 field :: Int -> LTerm -> [E] -> G r (Low Int)
@@ -579,15 +598,16 @@ cellOf e =
     EThk l t env -> thunkCell l t env >>= alloc
     EFix _ _ _ -> error "peval: a function in a data structure"
 
--- Apply a function to the arguments of a spine
-applyAll :: V -> [(Int, LTerm)] -> [E] -> G r V
-applyAll fv args env =
+-- Apply a function to the arguments of a spine, with more arguments after
+-- them (for the strictness of a fully applied function)
+applyAll :: V -> [(Int, LTerm)] -> Int -> [E] -> G r V
+applyAll fv args more env =
   case args of
     [] -> pure fv
     (l, x) : rest -> do
-      a <- argument fv l x env (length rest)
+      a <- argument fv l x env (length rest + more)
       v <- apply fv a
-      applyAll v rest env
+      applyAll v rest more env
 
 -- The argument of an application, with r more arguments after it
 argument :: V -> Int -> LTerm -> [E] -> Int -> G r E
@@ -650,34 +670,38 @@ define :: Ctx r -> Sh () -> LTerm -> [ShE ()] -> GS -> (Fn -> GS -> r) -> r
 define ctx@(Ctx o _ tbl _) key b ss (GS i m fs as st) k =
   oFun o (nParams ss)
     (\ fn ps st0 -> let (benv', _, i1) = rebuild tbl ss ps i
-                    in  evalT b benv' ctx (GS i1 [] ((key, fn) : fs) as st0) (oRet o))
+                    in  evalT b benv' ctx (GS i1 [] ((key, fn) : fs) as st0) KRet)
     (\ fn -> k fn (GS i m ((key, fn) : fs) as st))
 
--- Evaluate a term in tail position: its value goes to ret
-evalT :: LTerm -> [E] -> Ctx r -> GS -> (Low RV -> Low St -> r) -> r
-evalT t env ctx gs ret =
+-- Evaluate a term in tail position: its value goes to k.  A conditional
+-- needs no join point of its own, and calls and forcing a cell are tail
+-- calls when k returns.
+evalT :: LTerm -> [E] -> Ctx r -> GS -> K r -> r
+evalT t env ctx gs@(GS _ m _ _ st) k =
   case t of
     LIf0 c a b ->
       runG (eval c env) ctx gs $ \ cv gs1 ->
         case cv of
-          VInt 0 -> evalT a env ctx gs1 ret
-          VInt _ -> evalT b env ctx gs1 ret
+          VInt 0 -> evalT a env ctx gs1 k
+          VInt _ -> evalT b env ctx gs1 k
           _ -> runG (intOf cv) ctx gs1 $ \ ci gs2 ->
-                 oIf (ops ctx) ci (evalT a env ctx gs2 ret) (evalT b env ctx gs2 ret)
+                 oIf (ops ctx) ci (evalT a env ctx gs2 k) (evalT b env ctx gs2 k)
     LCase s n c ->
       runG (eval s env) ctx gs $ \ sv gs1 ->
         case sv of
-          VRV _ x -> caseOn x n c env ctx gs1 ret
+          VRV _ x -> caseOn x n c env ctx gs1 k
           _ -> error "peval: case on a value that is not a list"
     LApp _ _ _ ->
       let (h, args) = spine t
           (l, x) = last args
-      in  runG (do { f0 <- eval h env; fv <- applyAll f0 (init args) env; a <- argument fv l x env 0; return (fv, a) })
-               ctx gs $ \ (fv, a) gs1 -> applyT fv a ctx gs1 ret
-    _ -> runG (eval t env) ctx gs (\ v gs1 -> ret (box v) (stOf gs1))
+      in  runG (do { f0 <- eval h env; fv <- applyAll f0 (init args) 1 env; a <- argument fv l x env 0; return (fv, a) })
+               ctx gs $ \ (fv, a) gs1 -> applyT fv a ctx gs1 k
+    LLetrec l b body -> runG (letrec l b env) ctx gs $ \ env' gs1 -> evalT body env' ctx gs1 k
+    LVar n | ERef _ a <- env !! n, KRet <- k, isNothing (lookup (keyE (env !! n)) m) -> oForceT (ops ctx) a st
+    _ -> runG (eval t env) ctx gs (\ v gs1 -> jump (ops ctx) k (box v) (stOf gs1))
 
-applyT :: V -> E -> Ctx r -> GS -> (Low RV -> Low St -> r) -> r
-applyT fv a ctx@(Ctx o items _ _) gs ret =
+applyT :: V -> E -> Ctx r -> GS -> K r -> r
+applyT fv a ctx@(Ctx o items _ _) gs k =
   case fv of
     VClo l b cenv ->
       runG (normEnv (free b) (a : cenv)) ctx gs $ \ benv0 gs0@(GS i m fs0 as st0) ->
@@ -687,11 +711,11 @@ applyT fv a ctx@(Ctx o items _ _) gs ret =
               runG (reify (free b) benv0) ctx gs0 $ \ benv gs1@(GS _ _ fs _ st) ->
                 let (ss, ps) = absEnv False (free b) benv
                 in  case lookup key fs of
-                      Just fn -> oCall o fn ps st ret
+                      Just fn -> callK o k fn ps st
                       Nothing
-                        | IRec key `elem` items -> define ctx key b ss gs1 (\ fn gs2 -> oCall o fn ps (stOf gs2) ret)
-                        | otherwise -> oItem o (IRec key) (ret [| RNil |] st)
-            else evalT b benv0 ctx (GS i m fs0 (key : as) st0) ret
+                        | IRec key `elem` items -> define ctx key b ss gs1 (\ fn gs2 -> callK o k fn ps (stOf gs2))
+                        | otherwise -> oItem o (IRec key) (jump o k [| RNil |] st)
+            else evalT b benv0 ctx (GS i m fs0 (key : as) st0) k
     _ -> error "peval: applying a value that is not a function"
 
 op :: Op -> Int -> Int -> Int
@@ -713,7 +737,7 @@ thunkCode ctx@(Ctx o _ tbl _) key cs st =
   case key of
     SThk l ss -> uncons (nParams ss) cs $ \ ps ->
                    let (env, _, i) = rebuild tbl ss ps 0
-                   in  evalT (code tbl l) env ctx (GS i [] [] [] st) (oRet o)
+                   in  evalT (code tbl l) env ctx (GS i [] [] [] st) KRet
     _ -> error "thunkCode"
   where uncons n xs f = if n == 0 then f [] else
                           oUncons o xs (\ y ys -> uncons (n - 1) ys (\ zs -> f (y : zs)))
@@ -721,7 +745,7 @@ thunkCode ctx@(Ctx o _ tbl _) key cs st =
 -- The program applied to the input
 program :: LTerm -> Ctx r -> Low Int -> Low St -> r
 program lt ctx n st =
-  runG (eval lt []) ctx (GS 1 [] [] [] st) (\ f gs -> applyT f (EVal (VDyn 0 n)) ctx gs (oRet (ops ctx)))
+  runG (eval lt []) ctx (GS 1 [] [] [] st) (\ f gs -> applyT f (EVal (VDyn 0 n)) ctx gs KRet)
 
 -- The items of a program: run the compiler in the analysis mode, on the
 -- program and the code of every thunk found, until it finds no new items
@@ -756,9 +780,17 @@ compileFun t =
                        Node l c0 r -> if a == 1 then Node l c r
                                       else if a - 2 * (a `quot` 2) == 0 then Node (~store l (a `quot` 2) c) c0 r
                                       else Node l c0 (~store r (a `quot` 2) c) |]
-          run <- genRec $ \ run -> [| \ c xs st ->
-                     ~(dispatch (Ctx (genOps (Rt fetch store run)) items tbl cs) cs [| c |] [| xs |] [| st |]) |]
-          let ctx = Ctx (genOps (Rt fetch store run)) items tbl cs
+          rt <- genRec $ \ rt -> [| \ c a xs st ->
+                     if c == 0 then
+                       case st of
+                         St _ h -> case ~fetch h a of
+                                     Done v -> Res v st
+                                     Thunk d cs -> case ~rt (d + 1) 0 cs st of
+                                                     Res v st1 -> case st1 of
+                                                       St n1 h1 -> Res v (St n1 (~store h1 a (Done v)))
+                     else let d = c - 1 in
+                          ~(dispatch (Ctx (genOps (Rt store rt)) items tbl cs) cs [| d |] [| xs |] [| st |]) |]
+          let ctx = Ctx (genOps (Rt store rt)) items tbl cs
           return [| case ~(program lt ctx [| n |] [| St 1 Empty |]) of
                       Res v _ -> case v of RInt i -> i |]) |]
 
@@ -809,8 +841,9 @@ zipWithN = L "f" (L "xs" (L "ys"
                (CaseN (V "ys") NilN "y" "ys'"
                  (ConsN (V "f" :@ V "x" :@ V "y") (V "zipWith" :@ V "f" :@ V "xs'" :@ V "ys'"))))))
 tailN = L "xs" (CaseN (V "xs") NilN "h" "t" (V "t"))
-nthN = L "n" (L "xs" (CaseN (V "xs") (N 0) "h" "t"
-         (IfZ (V "n") (V "h") (V "nth" :@ (V "n" :- N 1) :@ V "t"))))
+-- strict in the index, like (!!)
+nthN = L "n" (L "xs" (IfZ (V "n") (CaseN (V "xs") (N 0) "h" "t" (V "h"))
+                                  (CaseN (V "xs") (N 0) "h" "t" (V "nth" :@ (V "n" :- N 1) :@ V "t"))))
 
 -- fibs = 0 : 1 : zipWith (+) fibs (tail fibs);  main input = fibs !! input
 fibsProgram :: Named
@@ -833,8 +866,10 @@ main :: IO ()
 main = do
   putStrLn "---- pfibs = compileFun (deBruijn fibsProgram), reflected"
   putStr (lowString (lowPretty (reflect pfibs)))
-  putStrLn "---- pfibs, C"
-  putStr (lowString (toC "pfibs" (reflect pfibs)))
+  putStrLn "---- pfibs, compact C"
+  putStr (lowString (toCompactC False "pfibs" (reflect pfibs)))
+  putStrLn "---- pfibs, compact C with a mutable heap"
+  putStr (lowString (toCompactC True "pfibs" (reflect pfibs)))
   putStrLn "---- run"
   print (map fibsC [0 .. 20])
   print (fibsC 40)                  -- fib 46 is the largest that fits a 32 bit Int
