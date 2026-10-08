@@ -110,6 +110,9 @@ gen at =
         _ | isEnumTy t -> return (show (conTag c))
         _ -> return ("[" ++ intercalate ", " (show (conTag c) : as') ++ "]")
     LFail m -> return ("(() => { throw new Error(" ++ show m ++ "); })()")
+    LStore as -> do { as' <- mapM gen as; return ("[" ++ intercalate ", " as' ++ "]") }
+    LFetch q i -> do { q' <- gen q; return (q' ++ "[" ++ show i ++ "]") }
+    LUpdate q as -> do { q' <- gen q; as' <- mapM gen as; return ("((c) => { " ++ concat [ "c[" ++ show i ++ "] = " ++ a ++ "; " | (i, a) <- zip [0 :: Int ..] as' ] ++ "return 0; })(" ++ q' ++ ")") }
 
 -- A function declaration.
 defFun :: String -> [(String, LowTy)] -> LowTerm -> J ()

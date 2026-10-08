@@ -85,6 +85,7 @@
     # Two-level type theory splice syntax ~e is not GHC syntax
     - --ignore-glob=lib/Staged.hs
     - --ignore-glob=lib/Staged/Low.hs
+    - --ignore-glob=lib/Staged/Low/Grin.hs
     - --ignore-glob=tests/Low1.hs
     - --ignore-glob=tests/Low2.hs
     - --ignore-glob=tests/Low3.hs
@@ -99,6 +100,7 @@
     - --ignore-glob=tests/LowFutamura.hs
     - --ignore-glob=tests/LowFutamuraLazy.hs
     - --ignore-glob=tests/LowCompactC.hs
+    - --ignore-glob=tests/LowGrin.hs
     - --ignore-glob=tests/StagedLib.hs
     - --ignore-glob=tests/Fix.hs
     - --ignore-glob=tests/Unboxed.hs

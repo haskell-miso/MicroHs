@@ -25,6 +25,16 @@
 -- A type variable in low code stands for a value type: a generator that is
 -- polymorphic in a type that is used in low code needs a (LowRep a) constraint,
 -- which the compiler solves for every concrete type.
+--
+-- Low code also has a mutable heap, with the operations of GRIN (Boquist,
+-- "Code Optimisation Techniques for Lazy Functional Languages", 1999):
+-- a node is a tag and fields, all words (Int), and a pointer is a word.
+--   store ws        allocate a heap cell holding the node ws, its pointer
+--   fetch p i       field i of the node at p (field 0 is the tag)
+--   update p ws b   overwrite the node at p with ws, then b
+-- A cell is never larger than the node it was stored with; an update must
+-- fit.  The heap operations are for code generators (they are reflected as
+-- LStore, LFetch and LUpdate); spliced low code cannot use them.
 module Staged.Low(
   Low, LowRep,
   LowTy(..), LowDecl(..), LowConDecl(..), LowCon(..), LowLit(..),
@@ -32,6 +42,7 @@ module Staged.Low(
   reflect, typeOf, arity, resultType, conFieldTypes, baseName, freeVars,
   lowPretty, lowPrettyTerm,
   Gen(..), runGen, gen, genRec, genLet,
+  store, fetch, update,
   lowInt, lowWord, lowDouble, lowFloat, lowChar, lowString, lowBool,
   ) where
 import Prelude
@@ -55,6 +66,9 @@ data LowTerm
                                              -- scrutinee, all constructors of its type, alternatives, default
   | LCon LowCon LowTy [LowTerm]              -- a saturated constructor application; the type of the value
   | LFail String                             -- a failed pattern match or error
+  | LStore [LowTerm]                         -- allocate a heap cell for a node (tag and fields), its pointer
+  | LFetch LowTerm Int                       -- a field of the node at a pointer (0 is the tag)
+  | LUpdate LowTerm [LowTerm]                -- overwrite the node at a pointer (the value is 0)
 
 data LowProg = LowProg {
   progType  :: LowTy,                        -- the type of the program
@@ -80,6 +94,9 @@ typeOf at =
     LCase _ _ [] Nothing -> TOther "empty case"
     LCon _ t _ -> t
     LFail _ -> TOther "fail"
+    LStore _ -> TInt
+    LFetch _ _ -> TInt
+    LUpdate _ _ -> TInt
 
 -- The number of arguments of a function type.
 arity :: LowTy -> Int
@@ -144,6 +161,9 @@ freeVars = nub . go []
         LCase s _ alts d -> go bound s ++ concatMap (\ (_, xs, b) -> go (map fst xs ++ bound) b) alts ++ maybe [] (go bound) d
         LCon _ _ as -> concatMap (go bound) as
         LFail _ -> []
+        LStore as -> concatMap (go bound) as
+        LFetch p _ -> go bound p
+        LUpdate p as -> concatMap (go bound) (p : as)
 
 -----------------------------------------------------------------------
 -- Reflection: read back the HOAS representation as first order terms.
@@ -194,6 +214,9 @@ readBack ae =
       x' <- fresh x
       b <- readBack (f (HVar boundLevel x' t))
       return (LLam [(x', t)] b)
+    HApp (HPrim "$store" _) as -> LStore <$> mapM readBack as
+    HApp (HPrim "$fetch" _) [p, HLit (LitInt i) _] -> (\ p' -> LFetch p' i) <$> readBack p
+    HApp (HPrim "$update" _) (p : as) -> LUpdate <$> readBack p <*> mapM readBack as
     HApp f as -> LApp <$> readBack f <*> mapM readBack as
     HLet x mt e f -> do
       e' <- readBack e
@@ -255,6 +278,9 @@ saturate at =
         etaCon c t as'
        else
         return (LCon c t as')
+    LStore as -> LStore <$> mapM saturate as
+    LFetch p i -> (\ p' -> LFetch p' i) <$> saturate p
+    LUpdate p as -> LUpdate <$> saturate p <*> mapM saturate as
     _ -> return at
 
 mergeLam :: [(String, LowTy)] -> LowTerm -> LowTerm
@@ -344,7 +370,9 @@ etaTo t e =
 --    (a function is never evaluated, the others cannot fail);
 --  * a function with one (unit) parameter that is called once (a join point
 --    of the pattern match compiler) is inlined;
---  * the default alternative of a case that covers all constructors is removed.
+--  * the default alternative of a case that covers all constructors is removed;
+--  * a call of a let bound identity function (a join point whose code after
+--    the join just returns) is its argument.
 simplify :: LowTerm -> LowTerm
 simplify at =
   case at of
@@ -355,6 +383,8 @@ simplify at =
             LVar _ _ -> substVar x e' b'
             _ | countVar x b' == 0 && harmless e' -> b'
             LLam [(_, pt)] body | isUnit pt, countVar x b' == 1, Just b'' <- inlineCall x body b' -> b''
+            -- (a join point can call one that is now gone: simplify again)
+            LLam [(y, _)] (LVar y' _) | y == y', Just b'' <- identityCalls x b' -> simplify b''
             _ -> LLet x t e' b'
     LLetRec bs b ->
       let bs' = [ (x, t, simplify e) | (x, t, e) <- bs ]
@@ -368,14 +398,20 @@ simplify at =
           complete = all (\ c -> c `elem` [ c' | (c', _, _) <- alts' ]) cons
       in  LCase (simplify s) cons alts' (if complete then Nothing else fmap simplify d)
     LCon c t as -> LCon c t (map simplify as)
+    LStore as -> LStore (map simplify as)
+    LFetch p i -> LFetch (simplify p) i
+    LUpdate p as -> LUpdate (simplify p) (map simplify as)
     _ -> at
   where
+    -- an unused store or fetch can be removed, an update cannot
     harmless e =
       case e of
         LLam _ _ -> True
         LVar _ _ -> True
         LLit _ _ -> True
         LCon _ _ as -> all harmless as
+        LStore as -> all harmless as
+        LFetch p _ -> harmless p
         _ -> False
     isUnit (TData "()" _ _) = True
     isUnit _ = False
@@ -391,6 +427,9 @@ countVar x at =
     LLetRec bs b -> sum [ countVar x e | (_, _, e) <- bs ] + countVar x b
     LCase s _ alts d -> countVar x s + sum [ countVar x b | (_, _, b) <- alts ] + maybe 0 (countVar x) d
     LCon _ _ as -> sum (map (countVar x) as)
+    LStore as -> sum (map (countVar x) as)
+    LFetch p _ -> countVar x p
+    LUpdate p as -> sum (map (countVar x) (p : as))
     _ -> 0
 
 -- Substitute a term (a variable) for a variable.
@@ -406,7 +445,30 @@ substVar x r = go
         LLetRec bs b -> LLetRec [ (y, t, go e) | (y, t, e) <- bs ] (go b)
         LCase s cons alts d -> LCase (go s) cons [ (c, xs, go b) | (c, xs, b) <- alts ] (fmap go d)
         LCon c t as -> LCon c t (map go as)
+        LStore as -> LStore (map go as)
+        LFetch p i -> LFetch (go p) i
+        LUpdate p as -> LUpdate (go p) (map go as)
         _ -> at
+
+-- Replace the calls  x arg  by arg (x is the identity function); Nothing if
+-- x is used otherwise.
+identityCalls :: String -> LowTerm -> Maybe LowTerm
+identityCalls x = go
+  where
+    go at =
+      case at of
+        LApp (LVar y _) [a] | x == y -> go a
+        LVar y _ | x == y -> Nothing
+        LApp f as -> LApp <$> go f <*> mapM go as
+        LLam xs b -> LLam xs <$> go b
+        LLet y t e b -> LLet y t <$> go e <*> go b
+        LLetRec bs b -> LLetRec <$> mapM (\ (y, t, e) -> (,,) y t <$> go e) bs <*> go b
+        LCase s cons alts d -> LCase <$> go s <*> pure cons <*> mapM (\ (c, xs, b) -> (,,) c xs <$> go b) alts <*> maybe (pure Nothing) (fmap Just . go) d
+        LCon c t as -> LCon c t <$> mapM go as
+        LStore as -> LStore <$> mapM go as
+        LFetch p i -> (\ p' -> LFetch p' i) <$> go p
+        LUpdate p as -> LUpdate <$> go p <*> mapM go as
+        _ -> Just at
 
 -- Replace the (only) call  x arg  by the body of x.
 inlineCall :: String -> LowTerm -> LowTerm -> Maybe LowTerm
@@ -422,6 +484,9 @@ inlineCall x body = go
         LLetRec bs b -> LLetRec <$> mapM (\ (y, t, e) -> (,,) y t <$> go e) bs <*> go b
         LCase s cons alts d -> LCase <$> go s <*> pure cons <*> mapM (\ (c, xs, b) -> (,,) c xs <$> go b) alts <*> maybe (pure Nothing) (fmap Just . go) d
         LCon c t as -> LCon c t <$> mapM go as
+        LStore as -> LStore <$> mapM go as
+        LFetch p i -> (\ p' -> LFetch p' i) <$> go p
+        LUpdate p as -> LUpdate <$> go p <*> mapM go as
         _ -> Just at
 
 -- The declarations of the data types used in a term (and in the types).
@@ -443,6 +508,9 @@ collectDecls t0 = reverse (go [] t0)
                             in maybe acc2 (go acc2) d
         LCon _ t as -> foldl go (ty acc t) as
         LFail _ -> acc
+        LStore as -> foldl go acc as
+        LFetch p _ -> go acc p
+        LUpdate p as -> foldl go acc (p : as)
     ty acc t =
       case t of
         TFun as r -> foldl ty (ty acc r) as
@@ -498,6 +566,9 @@ ppT ind p at =
     LCon c _ [] -> baseName (conName c)
     LCon c _ as -> par (p > 9) $ unwords (baseName (conName c) : map (ppT ind 10) as)
     LFail m -> par (p > 9) $ "fail " ++ show m
+    LStore as -> par (p > 9) $ "store [" ++ intercalate ", " (map (ppT ind 0) as) ++ "]"
+    LFetch q i -> par (p > 9) $ "fetch " ++ ppT ind 10 q ++ "[" ++ show i ++ "]"
+    LUpdate q as -> par (p > 9) $ "update " ++ ppT ind 10 q ++ " [" ++ intercalate ", " (map (ppT ind 0) as) ++ "]"
   where
     par True s = "(" ++ s ++ ")"
     par False s = s
@@ -563,6 +634,20 @@ genRec f = Gen $ \ k -> [| let x = ~(f [| x |]) in ~(k [| x |]) |]
 
 genLet :: forall a b . LowRep a => Low a -> (Low a -> Low b) -> Low b
 genLet c f = [| let x = ~c in ~(f [| x |]) |]
+
+-----------------------------------------------------------------------
+-- The heap (see the top of the module).
+
+store :: [Low Int] -> Low Int
+store ws = toLow (HApp (HPrim "$store" (TFun (map (const TInt) ws) TInt)) (map fromLow ws))
+
+fetch :: Low Int -> Int -> Low Int
+fetch p i = toLow (HApp (HPrim "$fetch" (TFun [TInt, TInt] TInt)) [fromLow p, HLit (LitInt i) TInt])
+
+update :: forall a . Low Int -> [Low Int] -> Low a -> Low a
+update p ws b =
+  toLow (HLet "u" (Just TInt) (HApp (HPrim "$update" (TFun (TInt : map (const TInt) ws) TInt)) (fromLow p : map fromLow ws))
+              (\ _ -> fromLow b))
 
 -----------------------------------------------------------------------
 -- Compile time values as low code.

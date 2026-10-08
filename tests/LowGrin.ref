@@ -1,0 +1,1780 @@
+==== factorial
+node kinds (tag: kind):
+fields (kind.field: kinds):
+results of thunk code (kind: kinds):
+joins (site: kinds):
+  16: Int
+recursive applications (lambda shape: result):
+  lambda17(thunk4(lambda5(lambda18())), int): Int
+---- low code
+-- type: Int -> Int
+-- data Bool = False | True
+\ (n :: Int) ->
+  letrec
+    f0 :: Int -> Int = \ (p :: Int) ->
+        let b :: Bool = p == 0
+        in case b of
+             False -> let x :: Int = p - 1
+               in let x_1 :: Int = f0 x
+                  in let x_2 :: Int = p * x_1
+                     in x_2
+             True -> 1
+  in let b_1 :: Bool = n == 0
+     in case b_1 of
+          False -> let x_3 :: Int = n - 1
+            in let x_4 :: Int = f0 x_3
+               in let x_5 :: Int = n * x_4
+                  in x_5
+          True -> 1
+---- C
+#include <stdint.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <math.h>
+
+/* Data.Bool_Type.Bool: False=0, True=1 */
+
+static int64_t f0(int64_t p);
+static int64_t f0(int64_t p) {
+  int b = (p == 0);
+  int64_t r_0;
+  switch (b) {
+  case 0: {
+  int64_t x = (p - 1);
+  int64_t x_1 = f0(x);
+  int64_t x_2 = (p * x_1);
+  r_0 = x_2; break; }
+  case 1: {
+  r_0 = 1; break; }
+  default: abort();
+  }
+  return r_0;
+}
+
+int64_t factorial(int64_t n) {
+  int b_1 = (n == 0);
+  int64_t r_1;
+  switch (b_1) {
+  case 0: {
+  int64_t x_3 = (n - 1);
+  int64_t x_4 = f0(x_3);
+  int64_t x_5 = (n * x_4);
+  r_1 = x_5; break; }
+  case 1: {
+  r_1 = 1; break; }
+  default: abort();
+  }
+  return r_1;
+}
+---- reference interpreter
+[(0,1),(1,1),(5,120),(10,3628800),(20,2432902008176640000)]
+==== fibs
+node kinds (tag: kind):
+  2: Int
+  3: P lambda8(ref, ref)
+  4: P lambda9(ref, ref)
+  5: P lambda105(int, ref)
+  6: P lambda106(int, ref)
+  7: F thunk14(+/2(), int, int)
+  8: F thunk14(+/2(), int, ref)
+  9: F thunk14(+/2(), ref, ref)
+  10: F thunk18(+/2(), ref, ref)
+  11: F thunk41(int)
+fields (kind.field: kinds):
+  3.1: {7, 8, 9}
+  3.2: {10}
+  4.1: {7, 8, 9}
+  4.2: {10}
+  5.2: {4}
+  6.2: {4}
+  8.2: {7, 8, 9}
+  9.1: {7, 8, 9}
+  9.2: {7, 8, 9}
+  10.1: {4, 6, 10}
+  10.2: {4, 10}
+results of thunk code (kind: kinds):
+  7: {2}
+  8: {2}
+  9: {2}
+  10: {4}
+  11: {2}
+joins (site: kinds):
+  2: {3, 5}
+  24: {4}
+  43: Int
+recursive applications (lambda shape: result):
+  lambda47(ref, ref): Int
+---- low code
+-- type: Int -> Int
+-- data Bool = False | True
+\ (n :: Int) ->
+  letrec
+    f0 :: Int -> Int -> Int = \ (p :: Int) (p_1 :: Int) ->
+        let x :: Int = fetch p[0]
+        in let x_2 :: Int = case x == 1 of
+                 False -> let x_1 :: Int = t3 p
+                   in let u :: Int = update p [1, x_1]
+                      in x_1
+                 True -> fetch p[1]
+           in let x_3 :: Int = fetch x_2[1]
+              in let x_4 :: Int = fetch x_2[2]
+                 in let x_5 :: Int = fetch p_1[0]
+                    in let x_7 :: Int = case x_5 == 1 of
+                             False -> let x_6 :: Int = t4 p_1
+                               in let u_1 :: Int = update p_1 [1, x_6]
+                                  in x_6
+                             True -> fetch p_1[1]
+                       in let x_8 :: Int = fetch x_7[1]
+                          in let b :: Bool = x_8 == 0
+                             in case b of
+                                  False -> let x_9 :: Int = fetch x_4[0]
+                                    in let x_11 :: Int = case x_9 == 1 of
+                                             False -> let x_10 :: Int = t3 x_4
+                                               in let u_2 :: Int = update x_4 [1, x_10]
+                                                  in x_10
+                                             True -> fetch x_4[1]
+                                       in let x_12 :: Int = fetch x_11[1]
+                                          in let x_13 :: Int = fetch x_11[2]
+                                             in let x_14 :: Int = fetch x_7[1]
+                                                in let x_15 :: Int = x_14 - 1
+                                                   in let b_1 :: Bool = x_15 == 0
+                                                      in case b_1 of
+                                                           False -> let x_16 :: Int = store [11, 0]
+                                                             in let u_3 :: Int = update x_16 [11, x_15]
+                                                                in let x_17 :: Int = f0 x_13 x_16
+                                                                   in x_17
+                                                           True -> let x_18 :: Int = fetch x_12[0]
+                                                             in let x_22 :: Int = case x_18 == 1 of
+                                                                      False -> case x_18 == 7 of
+                                                                          False -> case x_18 == 8 of
+                                                                              False -> let x_19 :: Int = t2 x_12
+                                                                                in let u_4 :: Int = update x_12 [1, x_19]
+                                                                                   in x_19
+                                                                              True -> let x_20 :: Int = t1 x_12
+                                                                                in let u_5 :: Int = update x_12 [1, x_20]
+                                                                                   in x_20
+                                                                          True -> let x_21 :: Int = t0 x_12
+                                                                            in let u_6 :: Int = update x_12 [1, x_21]
+                                                                               in x_21
+                                                                      True -> fetch x_12[1]
+                                                                in let x_23 :: Int = fetch x_22[1]
+                                                                   in x_23
+                                  True -> let x_24 :: Int = fetch x_3[0]
+                                    in let x_28 :: Int = case x_24 == 1 of
+                                             False -> case x_24 == 7 of
+                                                 False -> case x_24 == 8 of
+                                                     False -> let x_25 :: Int = t2 x_3
+                                                       in let u_7 :: Int = update x_3 [1, x_25]
+                                                          in x_25
+                                                     True -> let x_26 :: Int = t1 x_3
+                                                       in let u_8 :: Int = update x_3 [1, x_26]
+                                                          in x_26
+                                                 True -> let x_27 :: Int = t0 x_3
+                                                   in let u_9 :: Int = update x_3 [1, x_27]
+                                                      in x_27
+                                             True -> fetch x_3[1]
+                                       in let x_29 :: Int = fetch x_28[1]
+                                          in x_29
+    t0 :: Int -> Int = \ (p_2 :: Int) ->
+        let x_30 :: Int = fetch p_2[1]
+        in let x_31 :: Int = fetch p_2[2]
+           in let x_32 :: Int = x_30 + x_31
+              in let x_33 :: Int = store [2, x_32]
+                 in x_33
+    t1 :: Int -> Int = \ (p_3 :: Int) ->
+        let x_34 :: Int = fetch p_3[1]
+        in let x_35 :: Int = fetch p_3[2]
+           in let x_36 :: Int = fetch x_35[0]
+              in let x_40 :: Int = case x_36 == 1 of
+                       False -> case x_36 == 7 of
+                           False -> case x_36 == 8 of
+                               False -> let x_37 :: Int = t2 x_35
+                                 in let u_10 :: Int = update x_35 [1, x_37]
+                                    in x_37
+                               True -> let x_38 :: Int = t1 x_35
+                                 in let u_11 :: Int = update x_35 [1, x_38]
+                                    in x_38
+                           True -> let x_39 :: Int = t0 x_35
+                             in let u_12 :: Int = update x_35 [1, x_39]
+                                in x_39
+                       True -> fetch x_35[1]
+                 in let x_41 :: Int = fetch x_40[1]
+                    in let x_42 :: Int = x_34 + x_41
+                       in let x_43 :: Int = store [2, x_42]
+                          in x_43
+    t2 :: Int -> Int = \ (p_4 :: Int) ->
+        let x_44 :: Int = fetch p_4[1]
+        in let x_45 :: Int = fetch p_4[2]
+           in let x_46 :: Int = fetch x_45[0]
+              in let x_50 :: Int = case x_46 == 1 of
+                       False -> case x_46 == 7 of
+                           False -> case x_46 == 8 of
+                               False -> let x_47 :: Int = t2 x_45
+                                 in let u_13 :: Int = update x_45 [1, x_47]
+                                    in x_47
+                               True -> let x_48 :: Int = t1 x_45
+                                 in let u_14 :: Int = update x_45 [1, x_48]
+                                    in x_48
+                           True -> let x_49 :: Int = t0 x_45
+                             in let u_15 :: Int = update x_45 [1, x_49]
+                                in x_49
+                       True -> fetch x_45[1]
+                 in let x_51 :: Int = fetch x_44[0]
+                    in let x_55 :: Int = case x_51 == 1 of
+                             False -> case x_51 == 7 of
+                                 False -> case x_51 == 8 of
+                                     False -> let x_52 :: Int = t2 x_44
+                                       in let u_16 :: Int = update x_44 [1, x_52]
+                                          in x_52
+                                     True -> let x_53 :: Int = t1 x_44
+                                       in let u_17 :: Int = update x_44 [1, x_53]
+                                          in x_53
+                                 True -> let x_54 :: Int = t0 x_44
+                                   in let u_18 :: Int = update x_44 [1, x_54]
+                                      in x_54
+                             True -> fetch x_44[1]
+                       in let x_56 :: Int = fetch x_55[1]
+                          in let x_57 :: Int = fetch x_50[1]
+                             in let x_58 :: Int = x_56 + x_57
+                                in let x_59 :: Int = store [2, x_58]
+                                   in x_59
+    t3 :: Int -> Int = \ (p_5 :: Int) ->
+        let x_60 :: Int = fetch p_5[1]
+        in let x_61 :: Int = fetch p_5[2]
+           in let x_62 :: Int = fetch x_60[0]
+              in let x_64 :: Int = case x_62 == 1 of
+                       False -> case x_62 == 10 of
+                           False -> x_60
+                           True -> let x_63 :: Int = t3 x_60
+                             in let u_19 :: Int = update x_60 [1, x_63]
+                                in x_63
+                       True -> fetch x_60[1]
+                 in let x_65 :: Int = fetch x_64[0]
+                    in let j_3 :: Int -> Int = \ (v_2 :: Int) ->
+                             let x_66 :: Int = fetch v_2[0]
+                             in case x_66 == 3 of
+                                  False -> let x_67 :: Int = fetch v_2[1]
+                                    in let x_68 :: Int = fetch v_2[2]
+                                       in let x_69 :: Int = fetch x_61[0]
+                                          in let x_71 :: Int = case x_69 == 1 of
+                                                   False -> case x_69 == 10 of
+                                                       False -> x_61
+                                                       True -> let x_70 :: Int = t3 x_61
+                                                         in let u_20 :: Int = update x_61 [1, x_70]
+                                                            in x_70
+                                                   True -> fetch x_61[1]
+                                             in let x_72 :: Int = fetch x_71[1]
+                                                in let x_73 :: Int = fetch x_71[2]
+                                                   in let x_74 :: Int = store [8, 0, 0]
+                                                      in let u_21 :: Int = update x_74 [8, x_67, x_72]
+                                                         in let x_75 :: Int = store [10, 0, 0]
+                                                            in let u_22 :: Int = update x_75 [10, x_68, x_73]
+                                                               in let x_76 :: Int = store [4, x_74, x_75]
+                                                                  in x_76
+                                  True -> let x_77 :: Int = fetch v_2[1]
+                                    in let x_78 :: Int = fetch v_2[2]
+                                       in let x_79 :: Int = fetch x_61[0]
+                                          in let x_81 :: Int = case x_79 == 1 of
+                                                   False -> case x_79 == 10 of
+                                                       False -> x_61
+                                                       True -> let x_80 :: Int = t3 x_61
+                                                         in let u_23 :: Int = update x_61 [1, x_80]
+                                                            in x_80
+                                                   True -> fetch x_61[1]
+                                             in let x_82 :: Int = fetch x_81[1]
+                                                in let x_83 :: Int = fetch x_81[2]
+                                                   in let x_84 :: Int = store [9, 0, 0]
+                                                      in let u_24 :: Int = update x_84 [9, x_77, x_82]
+                                                         in let x_85 :: Int = store [10, 0, 0]
+                                                            in let u_25 :: Int = update x_85 [10, x_78, x_83]
+                                                               in let x_86 :: Int = store [4, x_84, x_85]
+                                                                  in x_86
+                       in case x_65 == 4 of
+                            False -> let x_87 :: Int = fetch x_64[1]
+                              in let x_88 :: Int = fetch x_64[2]
+                                 in let x_89 :: Int = store [5, x_87, x_88]
+                                    in j_3 x_89
+                            True -> let x_90 :: Int = fetch x_64[1]
+                              in let x_91 :: Int = fetch x_64[2]
+                                 in let x_92 :: Int = store [3, x_90, x_91]
+                                    in j_3 x_92
+    t4 :: Int -> Int = \ (p_6 :: Int) ->
+        let x_93 :: Int = fetch p_6[1]
+        in let x_94 :: Int = x_93 - 1
+           in let x_95 :: Int = store [2, x_94]
+              in x_95
+  in let b_2 :: Bool = n == 0
+     in case b_2 of
+          False -> let x_96 :: Int = n - 1
+            in let b_3 :: Bool = x_96 == 0
+               in case b_3 of
+                    False -> let x_97 :: Int = x_96 - 1
+                      in let b_4 :: Bool = x_97 == 0
+                         in case b_4 of
+                              False -> let x_98 :: Int = store [10, 0, 0]
+                                in let x_99 :: Int = store [6, 0, 0]
+                                   in let x_100 :: Int = store [4, 0, 0]
+                                      in let x_101 :: Int = store [7, 0, 0]
+                                         in let u_26 :: Int = update x_101 [7, 0, 1]
+                                            in let x_102 :: Int = store [10, 0, 0]
+                                               in let u_27 :: Int = update x_102 [10, x_99, x_100]
+                                                  in let u_28 :: Int = update x_100 [4, x_101, x_102]
+                                                     in let u_29 :: Int = update x_99 [6, 1, x_100]
+                                                        in let u_30 :: Int = update x_98 [10, x_99, x_100]
+                                                           in let x_103 :: Int = store [11, 0]
+                                                              in let u_31 :: Int = update x_103 [11, x_97]
+                                                                 in let x_104 :: Int = f0 x_98 x_103
+                                                                    in x_104
+                              True -> 1
+                    True -> 1
+          True -> 0
+---- C
+#include <stdint.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <math.h>
+
+/* Data.Bool_Type.Bool: False=0, True=1 */
+
+static int64_t f0(int64_t p, int64_t p_1);
+static int64_t t0(int64_t p_2);
+static int64_t t1(int64_t p_3);
+static int64_t t2(int64_t p_4);
+static int64_t t3(int64_t p_5);
+static int64_t t4(int64_t p_6);
+static int64_t f0(int64_t p, int64_t p_1) {
+  int64_t f_0 = ((int64_t *)p)[0];
+  int64_t x = f_0;
+  int64_t r_1;
+  switch ((x == 1)) {
+  case 0: {
+  int64_t x_1 = t3(p);
+  int64_t *u_2 = (int64_t *)p;
+  u_2[0] = 1;
+  u_2[1] = x_1;
+  int64_t u = 0;
+  r_1 = x_1; break; }
+  case 1: {
+  int64_t f_3 = ((int64_t *)p)[1];
+  r_1 = f_3; break; }
+  default: abort();
+  }
+  int64_t x_2 = r_1;
+  int64_t f_4 = ((int64_t *)x_2)[1];
+  int64_t x_3 = f_4;
+  int64_t f_5 = ((int64_t *)x_2)[2];
+  int64_t x_4 = f_5;
+  int64_t f_6 = ((int64_t *)p_1)[0];
+  int64_t x_5 = f_6;
+  int64_t r_7;
+  switch ((x_5 == 1)) {
+  case 0: {
+  int64_t x_6 = t4(p_1);
+  int64_t *u_8 = (int64_t *)p_1;
+  u_8[0] = 1;
+  u_8[1] = x_6;
+  int64_t u_1 = 0;
+  r_7 = x_6; break; }
+  case 1: {
+  int64_t f_9 = ((int64_t *)p_1)[1];
+  r_7 = f_9; break; }
+  default: abort();
+  }
+  int64_t x_7 = r_7;
+  int64_t f_10 = ((int64_t *)x_7)[1];
+  int64_t x_8 = f_10;
+  int b = (x_8 == 0);
+  int64_t r_11;
+  switch (b) {
+  case 0: {
+  int64_t f_12 = ((int64_t *)x_4)[0];
+  int64_t x_9 = f_12;
+  int64_t r_13;
+  switch ((x_9 == 1)) {
+  case 0: {
+  int64_t x_10 = t3(x_4);
+  int64_t *u_14 = (int64_t *)x_4;
+  u_14[0] = 1;
+  u_14[1] = x_10;
+  int64_t u_2 = 0;
+  r_13 = x_10; break; }
+  case 1: {
+  int64_t f_15 = ((int64_t *)x_4)[1];
+  r_13 = f_15; break; }
+  default: abort();
+  }
+  int64_t x_11 = r_13;
+  int64_t f_16 = ((int64_t *)x_11)[1];
+  int64_t x_12 = f_16;
+  int64_t f_17 = ((int64_t *)x_11)[2];
+  int64_t x_13 = f_17;
+  int64_t f_18 = ((int64_t *)x_7)[1];
+  int64_t x_14 = f_18;
+  int64_t x_15 = (x_14 - 1);
+  int b_1 = (x_15 == 0);
+  int64_t r_19;
+  switch (b_1) {
+  case 0: {
+  int64_t *n_20 = malloc(2 * sizeof(int64_t));
+  n_20[0] = 11;
+  n_20[1] = 0;
+  int64_t x_16 = (int64_t)n_20;
+  int64_t *u_21 = (int64_t *)x_16;
+  u_21[0] = 11;
+  u_21[1] = x_15;
+  int64_t u_3 = 0;
+  int64_t x_17 = f0(x_13, x_16);
+  r_19 = x_17; break; }
+  case 1: {
+  int64_t f_22 = ((int64_t *)x_12)[0];
+  int64_t x_18 = f_22;
+  int64_t r_23;
+  switch ((x_18 == 1)) {
+  case 0: {
+  int64_t r_24;
+  switch ((x_18 == 7)) {
+  case 0: {
+  int64_t r_25;
+  switch ((x_18 == 8)) {
+  case 0: {
+  int64_t x_19 = t2(x_12);
+  int64_t *u_26 = (int64_t *)x_12;
+  u_26[0] = 1;
+  u_26[1] = x_19;
+  int64_t u_4 = 0;
+  r_25 = x_19; break; }
+  case 1: {
+  int64_t x_20 = t1(x_12);
+  int64_t *u_27 = (int64_t *)x_12;
+  u_27[0] = 1;
+  u_27[1] = x_20;
+  int64_t u_5 = 0;
+  r_25 = x_20; break; }
+  default: abort();
+  }
+  r_24 = r_25; break; }
+  case 1: {
+  int64_t x_21 = t0(x_12);
+  int64_t *u_28 = (int64_t *)x_12;
+  u_28[0] = 1;
+  u_28[1] = x_21;
+  int64_t u_6 = 0;
+  r_24 = x_21; break; }
+  default: abort();
+  }
+  r_23 = r_24; break; }
+  case 1: {
+  int64_t f_29 = ((int64_t *)x_12)[1];
+  r_23 = f_29; break; }
+  default: abort();
+  }
+  int64_t x_22 = r_23;
+  int64_t f_30 = ((int64_t *)x_22)[1];
+  int64_t x_23 = f_30;
+  r_19 = x_23; break; }
+  default: abort();
+  }
+  r_11 = r_19; break; }
+  case 1: {
+  int64_t f_31 = ((int64_t *)x_3)[0];
+  int64_t x_24 = f_31;
+  int64_t r_32;
+  switch ((x_24 == 1)) {
+  case 0: {
+  int64_t r_33;
+  switch ((x_24 == 7)) {
+  case 0: {
+  int64_t r_34;
+  switch ((x_24 == 8)) {
+  case 0: {
+  int64_t x_25 = t2(x_3);
+  int64_t *u_35 = (int64_t *)x_3;
+  u_35[0] = 1;
+  u_35[1] = x_25;
+  int64_t u_7 = 0;
+  r_34 = x_25; break; }
+  case 1: {
+  int64_t x_26 = t1(x_3);
+  int64_t *u_36 = (int64_t *)x_3;
+  u_36[0] = 1;
+  u_36[1] = x_26;
+  int64_t u_8 = 0;
+  r_34 = x_26; break; }
+  default: abort();
+  }
+  r_33 = r_34; break; }
+  case 1: {
+  int64_t x_27 = t0(x_3);
+  int64_t *u_37 = (int64_t *)x_3;
+  u_37[0] = 1;
+  u_37[1] = x_27;
+  int64_t u_9 = 0;
+  r_33 = x_27; break; }
+  default: abort();
+  }
+  r_32 = r_33; break; }
+  case 1: {
+  int64_t f_38 = ((int64_t *)x_3)[1];
+  r_32 = f_38; break; }
+  default: abort();
+  }
+  int64_t x_28 = r_32;
+  int64_t f_39 = ((int64_t *)x_28)[1];
+  int64_t x_29 = f_39;
+  r_11 = x_29; break; }
+  default: abort();
+  }
+  return r_11;
+}
+static int64_t t0(int64_t p_2) {
+  int64_t f_40 = ((int64_t *)p_2)[1];
+  int64_t x_30 = f_40;
+  int64_t f_41 = ((int64_t *)p_2)[2];
+  int64_t x_31 = f_41;
+  int64_t x_32 = (x_30 + x_31);
+  int64_t *n_42 = malloc(2 * sizeof(int64_t));
+  n_42[0] = 2;
+  n_42[1] = x_32;
+  int64_t x_33 = (int64_t)n_42;
+  return x_33;
+}
+static int64_t t1(int64_t p_3) {
+  int64_t f_43 = ((int64_t *)p_3)[1];
+  int64_t x_34 = f_43;
+  int64_t f_44 = ((int64_t *)p_3)[2];
+  int64_t x_35 = f_44;
+  int64_t f_45 = ((int64_t *)x_35)[0];
+  int64_t x_36 = f_45;
+  int64_t r_46;
+  switch ((x_36 == 1)) {
+  case 0: {
+  int64_t r_47;
+  switch ((x_36 == 7)) {
+  case 0: {
+  int64_t r_48;
+  switch ((x_36 == 8)) {
+  case 0: {
+  int64_t x_37 = t2(x_35);
+  int64_t *u_49 = (int64_t *)x_35;
+  u_49[0] = 1;
+  u_49[1] = x_37;
+  int64_t u_10 = 0;
+  r_48 = x_37; break; }
+  case 1: {
+  int64_t x_38 = t1(x_35);
+  int64_t *u_50 = (int64_t *)x_35;
+  u_50[0] = 1;
+  u_50[1] = x_38;
+  int64_t u_11 = 0;
+  r_48 = x_38; break; }
+  default: abort();
+  }
+  r_47 = r_48; break; }
+  case 1: {
+  int64_t x_39 = t0(x_35);
+  int64_t *u_51 = (int64_t *)x_35;
+  u_51[0] = 1;
+  u_51[1] = x_39;
+  int64_t u_12 = 0;
+  r_47 = x_39; break; }
+  default: abort();
+  }
+  r_46 = r_47; break; }
+  case 1: {
+  int64_t f_52 = ((int64_t *)x_35)[1];
+  r_46 = f_52; break; }
+  default: abort();
+  }
+  int64_t x_40 = r_46;
+  int64_t f_53 = ((int64_t *)x_40)[1];
+  int64_t x_41 = f_53;
+  int64_t x_42 = (x_34 + x_41);
+  int64_t *n_54 = malloc(2 * sizeof(int64_t));
+  n_54[0] = 2;
+  n_54[1] = x_42;
+  int64_t x_43 = (int64_t)n_54;
+  return x_43;
+}
+static int64_t t2(int64_t p_4) {
+  int64_t f_55 = ((int64_t *)p_4)[1];
+  int64_t x_44 = f_55;
+  int64_t f_56 = ((int64_t *)p_4)[2];
+  int64_t x_45 = f_56;
+  int64_t f_57 = ((int64_t *)x_45)[0];
+  int64_t x_46 = f_57;
+  int64_t r_58;
+  switch ((x_46 == 1)) {
+  case 0: {
+  int64_t r_59;
+  switch ((x_46 == 7)) {
+  case 0: {
+  int64_t r_60;
+  switch ((x_46 == 8)) {
+  case 0: {
+  int64_t x_47 = t2(x_45);
+  int64_t *u_61 = (int64_t *)x_45;
+  u_61[0] = 1;
+  u_61[1] = x_47;
+  int64_t u_13 = 0;
+  r_60 = x_47; break; }
+  case 1: {
+  int64_t x_48 = t1(x_45);
+  int64_t *u_62 = (int64_t *)x_45;
+  u_62[0] = 1;
+  u_62[1] = x_48;
+  int64_t u_14 = 0;
+  r_60 = x_48; break; }
+  default: abort();
+  }
+  r_59 = r_60; break; }
+  case 1: {
+  int64_t x_49 = t0(x_45);
+  int64_t *u_63 = (int64_t *)x_45;
+  u_63[0] = 1;
+  u_63[1] = x_49;
+  int64_t u_15 = 0;
+  r_59 = x_49; break; }
+  default: abort();
+  }
+  r_58 = r_59; break; }
+  case 1: {
+  int64_t f_64 = ((int64_t *)x_45)[1];
+  r_58 = f_64; break; }
+  default: abort();
+  }
+  int64_t x_50 = r_58;
+  int64_t f_65 = ((int64_t *)x_44)[0];
+  int64_t x_51 = f_65;
+  int64_t r_66;
+  switch ((x_51 == 1)) {
+  case 0: {
+  int64_t r_67;
+  switch ((x_51 == 7)) {
+  case 0: {
+  int64_t r_68;
+  switch ((x_51 == 8)) {
+  case 0: {
+  int64_t x_52 = t2(x_44);
+  int64_t *u_69 = (int64_t *)x_44;
+  u_69[0] = 1;
+  u_69[1] = x_52;
+  int64_t u_16 = 0;
+  r_68 = x_52; break; }
+  case 1: {
+  int64_t x_53 = t1(x_44);
+  int64_t *u_70 = (int64_t *)x_44;
+  u_70[0] = 1;
+  u_70[1] = x_53;
+  int64_t u_17 = 0;
+  r_68 = x_53; break; }
+  default: abort();
+  }
+  r_67 = r_68; break; }
+  case 1: {
+  int64_t x_54 = t0(x_44);
+  int64_t *u_71 = (int64_t *)x_44;
+  u_71[0] = 1;
+  u_71[1] = x_54;
+  int64_t u_18 = 0;
+  r_67 = x_54; break; }
+  default: abort();
+  }
+  r_66 = r_67; break; }
+  case 1: {
+  int64_t f_72 = ((int64_t *)x_44)[1];
+  r_66 = f_72; break; }
+  default: abort();
+  }
+  int64_t x_55 = r_66;
+  int64_t f_73 = ((int64_t *)x_55)[1];
+  int64_t x_56 = f_73;
+  int64_t f_74 = ((int64_t *)x_50)[1];
+  int64_t x_57 = f_74;
+  int64_t x_58 = (x_56 + x_57);
+  int64_t *n_75 = malloc(2 * sizeof(int64_t));
+  n_75[0] = 2;
+  n_75[1] = x_58;
+  int64_t x_59 = (int64_t)n_75;
+  return x_59;
+}
+static int64_t j_3(int64_t x_61, int64_t v_2) {
+  int64_t f_84 = ((int64_t *)v_2)[0];
+  int64_t x_66 = f_84;
+  int64_t r_85;
+  switch ((x_66 == 3)) {
+  case 0: {
+  int64_t f_86 = ((int64_t *)v_2)[1];
+  int64_t x_67 = f_86;
+  int64_t f_87 = ((int64_t *)v_2)[2];
+  int64_t x_68 = f_87;
+  int64_t f_88 = ((int64_t *)x_61)[0];
+  int64_t x_69 = f_88;
+  int64_t r_89;
+  switch ((x_69 == 1)) {
+  case 0: {
+  int64_t r_90;
+  switch ((x_69 == 10)) {
+  case 0: {
+  r_90 = x_61; break; }
+  case 1: {
+  int64_t x_70 = t3(x_61);
+  int64_t *u_91 = (int64_t *)x_61;
+  u_91[0] = 1;
+  u_91[1] = x_70;
+  int64_t u_20 = 0;
+  r_90 = x_70; break; }
+  default: abort();
+  }
+  r_89 = r_90; break; }
+  case 1: {
+  int64_t f_92 = ((int64_t *)x_61)[1];
+  r_89 = f_92; break; }
+  default: abort();
+  }
+  int64_t x_71 = r_89;
+  int64_t f_93 = ((int64_t *)x_71)[1];
+  int64_t x_72 = f_93;
+  int64_t f_94 = ((int64_t *)x_71)[2];
+  int64_t x_73 = f_94;
+  int64_t *n_95 = malloc(3 * sizeof(int64_t));
+  n_95[0] = 8;
+  n_95[1] = 0;
+  n_95[2] = 0;
+  int64_t x_74 = (int64_t)n_95;
+  int64_t *u_96 = (int64_t *)x_74;
+  u_96[0] = 8;
+  u_96[1] = x_67;
+  u_96[2] = x_72;
+  int64_t u_21 = 0;
+  int64_t *n_97 = malloc(3 * sizeof(int64_t));
+  n_97[0] = 10;
+  n_97[1] = 0;
+  n_97[2] = 0;
+  int64_t x_75 = (int64_t)n_97;
+  int64_t *u_98 = (int64_t *)x_75;
+  u_98[0] = 10;
+  u_98[1] = x_68;
+  u_98[2] = x_73;
+  int64_t u_22 = 0;
+  int64_t *n_99 = malloc(3 * sizeof(int64_t));
+  n_99[0] = 4;
+  n_99[1] = x_74;
+  n_99[2] = x_75;
+  int64_t x_76 = (int64_t)n_99;
+  r_85 = x_76; break; }
+  case 1: {
+  int64_t f_100 = ((int64_t *)v_2)[1];
+  int64_t x_77 = f_100;
+  int64_t f_101 = ((int64_t *)v_2)[2];
+  int64_t x_78 = f_101;
+  int64_t f_102 = ((int64_t *)x_61)[0];
+  int64_t x_79 = f_102;
+  int64_t r_103;
+  switch ((x_79 == 1)) {
+  case 0: {
+  int64_t r_104;
+  switch ((x_79 == 10)) {
+  case 0: {
+  r_104 = x_61; break; }
+  case 1: {
+  int64_t x_80 = t3(x_61);
+  int64_t *u_105 = (int64_t *)x_61;
+  u_105[0] = 1;
+  u_105[1] = x_80;
+  int64_t u_23 = 0;
+  r_104 = x_80; break; }
+  default: abort();
+  }
+  r_103 = r_104; break; }
+  case 1: {
+  int64_t f_106 = ((int64_t *)x_61)[1];
+  r_103 = f_106; break; }
+  default: abort();
+  }
+  int64_t x_81 = r_103;
+  int64_t f_107 = ((int64_t *)x_81)[1];
+  int64_t x_82 = f_107;
+  int64_t f_108 = ((int64_t *)x_81)[2];
+  int64_t x_83 = f_108;
+  int64_t *n_109 = malloc(3 * sizeof(int64_t));
+  n_109[0] = 9;
+  n_109[1] = 0;
+  n_109[2] = 0;
+  int64_t x_84 = (int64_t)n_109;
+  int64_t *u_110 = (int64_t *)x_84;
+  u_110[0] = 9;
+  u_110[1] = x_77;
+  u_110[2] = x_82;
+  int64_t u_24 = 0;
+  int64_t *n_111 = malloc(3 * sizeof(int64_t));
+  n_111[0] = 10;
+  n_111[1] = 0;
+  n_111[2] = 0;
+  int64_t x_85 = (int64_t)n_111;
+  int64_t *u_112 = (int64_t *)x_85;
+  u_112[0] = 10;
+  u_112[1] = x_78;
+  u_112[2] = x_83;
+  int64_t u_25 = 0;
+  int64_t *n_113 = malloc(3 * sizeof(int64_t));
+  n_113[0] = 4;
+  n_113[1] = x_84;
+  n_113[2] = x_85;
+  int64_t x_86 = (int64_t)n_113;
+  r_85 = x_86; break; }
+  default: abort();
+  }
+  return r_85;
+}
+static int64_t t3(int64_t p_5) {
+  int64_t f_76 = ((int64_t *)p_5)[1];
+  int64_t x_60 = f_76;
+  int64_t f_77 = ((int64_t *)p_5)[2];
+  int64_t x_61 = f_77;
+  int64_t f_78 = ((int64_t *)x_60)[0];
+  int64_t x_62 = f_78;
+  int64_t r_79;
+  switch ((x_62 == 1)) {
+  case 0: {
+  int64_t r_80;
+  switch ((x_62 == 10)) {
+  case 0: {
+  r_80 = x_60; break; }
+  case 1: {
+  int64_t x_63 = t3(x_60);
+  int64_t *u_81 = (int64_t *)x_60;
+  u_81[0] = 1;
+  u_81[1] = x_63;
+  int64_t u_19 = 0;
+  r_80 = x_63; break; }
+  default: abort();
+  }
+  r_79 = r_80; break; }
+  case 1: {
+  int64_t f_82 = ((int64_t *)x_60)[1];
+  r_79 = f_82; break; }
+  default: abort();
+  }
+  int64_t x_64 = r_79;
+  int64_t f_83 = ((int64_t *)x_64)[0];
+  int64_t x_65 = f_83;
+  int64_t r_114;
+  switch ((x_65 == 4)) {
+  case 0: {
+  int64_t f_115 = ((int64_t *)x_64)[1];
+  int64_t x_87 = f_115;
+  int64_t f_116 = ((int64_t *)x_64)[2];
+  int64_t x_88 = f_116;
+  int64_t *n_117 = malloc(3 * sizeof(int64_t));
+  n_117[0] = 5;
+  n_117[1] = x_87;
+  n_117[2] = x_88;
+  int64_t x_89 = (int64_t)n_117;
+  r_114 = j_3(x_61, x_89); break; }
+  case 1: {
+  int64_t f_118 = ((int64_t *)x_64)[1];
+  int64_t x_90 = f_118;
+  int64_t f_119 = ((int64_t *)x_64)[2];
+  int64_t x_91 = f_119;
+  int64_t *n_120 = malloc(3 * sizeof(int64_t));
+  n_120[0] = 3;
+  n_120[1] = x_90;
+  n_120[2] = x_91;
+  int64_t x_92 = (int64_t)n_120;
+  r_114 = j_3(x_61, x_92); break; }
+  default: abort();
+  }
+  return r_114;
+}
+static int64_t t4(int64_t p_6) {
+  int64_t f_121 = ((int64_t *)p_6)[1];
+  int64_t x_93 = f_121;
+  int64_t x_94 = (x_93 - 1);
+  int64_t *n_122 = malloc(2 * sizeof(int64_t));
+  n_122[0] = 2;
+  n_122[1] = x_94;
+  int64_t x_95 = (int64_t)n_122;
+  return x_95;
+}
+
+int64_t fibs(int64_t n) {
+  int b_2 = (n == 0);
+  int64_t r_123;
+  switch (b_2) {
+  case 0: {
+  int64_t x_96 = (n - 1);
+  int b_3 = (x_96 == 0);
+  int64_t r_124;
+  switch (b_3) {
+  case 0: {
+  int64_t x_97 = (x_96 - 1);
+  int b_4 = (x_97 == 0);
+  int64_t r_125;
+  switch (b_4) {
+  case 0: {
+  int64_t *n_126 = malloc(3 * sizeof(int64_t));
+  n_126[0] = 10;
+  n_126[1] = 0;
+  n_126[2] = 0;
+  int64_t x_98 = (int64_t)n_126;
+  int64_t *n_127 = malloc(3 * sizeof(int64_t));
+  n_127[0] = 6;
+  n_127[1] = 0;
+  n_127[2] = 0;
+  int64_t x_99 = (int64_t)n_127;
+  int64_t *n_128 = malloc(3 * sizeof(int64_t));
+  n_128[0] = 4;
+  n_128[1] = 0;
+  n_128[2] = 0;
+  int64_t x_100 = (int64_t)n_128;
+  int64_t *n_129 = malloc(3 * sizeof(int64_t));
+  n_129[0] = 7;
+  n_129[1] = 0;
+  n_129[2] = 0;
+  int64_t x_101 = (int64_t)n_129;
+  int64_t *u_130 = (int64_t *)x_101;
+  u_130[0] = 7;
+  u_130[1] = 0;
+  u_130[2] = 1;
+  int64_t u_26 = 0;
+  int64_t *n_131 = malloc(3 * sizeof(int64_t));
+  n_131[0] = 10;
+  n_131[1] = 0;
+  n_131[2] = 0;
+  int64_t x_102 = (int64_t)n_131;
+  int64_t *u_132 = (int64_t *)x_102;
+  u_132[0] = 10;
+  u_132[1] = x_99;
+  u_132[2] = x_100;
+  int64_t u_27 = 0;
+  int64_t *u_133 = (int64_t *)x_100;
+  u_133[0] = 4;
+  u_133[1] = x_101;
+  u_133[2] = x_102;
+  int64_t u_28 = 0;
+  int64_t *u_134 = (int64_t *)x_99;
+  u_134[0] = 6;
+  u_134[1] = 1;
+  u_134[2] = x_100;
+  int64_t u_29 = 0;
+  int64_t *u_135 = (int64_t *)x_98;
+  u_135[0] = 10;
+  u_135[1] = x_99;
+  u_135[2] = x_100;
+  int64_t u_30 = 0;
+  int64_t *n_136 = malloc(2 * sizeof(int64_t));
+  n_136[0] = 11;
+  n_136[1] = 0;
+  int64_t x_103 = (int64_t)n_136;
+  int64_t *u_137 = (int64_t *)x_103;
+  u_137[0] = 11;
+  u_137[1] = x_97;
+  int64_t u_31 = 0;
+  int64_t x_104 = f0(x_98, x_103);
+  r_125 = x_104; break; }
+  case 1: {
+  r_125 = 1; break; }
+  default: abort();
+  }
+  r_124 = r_125; break; }
+  case 1: {
+  r_124 = 1; break; }
+  default: abort();
+  }
+  r_123 = r_124; break; }
+  case 1: {
+  r_123 = 0; break; }
+  default: abort();
+  }
+  return r_123;
+}
+---- reference interpreter
+[(0,0),(1,1),(2,1),(10,55),(40,102334155)]
+==== sumSquares
+node kinds (tag: kind):
+  2: Int
+  3: P lambda53(int, ref)
+  4: P lambda54(int, ref)
+  5: P lambda64(lambda78())
+  6: P lambda65()
+  7: P lambda77(int)
+  8: P lambda78()
+  9: P lambda82(ref, ref)
+  10: P lambda83(ref, ref)
+  11: F thunk62(int, int)
+  12: F thunk87(lambda98(), int)
+  13: F thunk90(lambda98(), ref)
+fields (kind.field: kinds):
+  3.2: {11}
+  4.2: {11}
+  9.1: {12}
+  9.2: {13}
+  10.1: {12}
+  10.2: {13}
+  13.1: {11}
+results of thunk code (kind: kinds):
+  11: {4, 6}
+  12: {2}
+  13: {8, 10}
+joins (site: kinds):
+  66: {4, 6}
+  69: {7, 9}
+  75: Int
+  79: {3, 5}
+  93: {8, 10}
+recursive applications (lambda shape: result):
+  lambda76(ptr): Int
+---- low code
+-- type: Int -> Int
+-- data Bool = False | True
+\ (n :: Int) ->
+  letrec
+    f0 :: Int -> Int = \ (p :: Int) ->
+        let x :: Int = fetch p[0]
+        in let j_1 :: Int -> Int = \ (v :: Int) ->
+                 let x_1 :: Int = fetch v[0]
+                 in case x_1 == 7 of
+                      False -> let x_2 :: Int = fetch v[1]
+                        in let x_3 :: Int = fetch v[2]
+                           in let x_4 :: Int = fetch x_3[0]
+                              in let x_6 :: Int = case x_4 == 1 of
+                                       False -> let x_5 :: Int = t2 x_3
+                                         in let u :: Int = update x_3 [1, x_5]
+                                            in x_5
+                                       True -> fetch x_3[1]
+                                 in let x_7 :: Int = f0 x_6
+                                    in let x_8 :: Int = fetch x_2[0]
+                                       in let x_10 :: Int = case x_8 == 1 of
+                                                False -> let x_9 :: Int = t1 x_2
+                                                  in let u_1 :: Int = update x_2 [1, x_9]
+                                                     in x_9
+                                                True -> fetch x_2[1]
+                                          in let x_11 :: Int = fetch x_10[1]
+                                             in let x_12 :: Int = x_11 + x_7
+                                                in x_12
+                      True -> let x_13 :: Int = fetch v[1]
+                        in x_13
+           in case x == 8 of
+                False -> let x_14 :: Int = fetch p[1]
+                  in let x_15 :: Int = fetch p[2]
+                     in let x_16 :: Int = store [9, x_14, x_15]
+                        in j_1 x_16
+                True -> let x_17 :: Int = store [7, 0]
+                  in j_1 x_17
+    t0 :: Int -> Int = \ (p_1 :: Int) ->
+        let x_18 :: Int = fetch p_1[1]
+        in let x_19 :: Int = fetch p_1[2]
+           in let x_20 :: Int = x_18 + 1
+              in let b :: Bool = x_20 > x_19
+                 in case b of
+                      False -> let x_21 :: Int = store [11, 0, 0]
+                        in let u_2 :: Int = update x_21 [11, x_20, x_19]
+                           in let x_22 :: Int = store [4, x_20, x_21]
+                              in x_22
+                      True -> let x_23 :: Int = store [6]
+                        in x_23
+    t1 :: Int -> Int = \ (p_2 :: Int) ->
+        let x_24 :: Int = fetch p_2[1]
+        in let x_25 :: Int = x_24 * x_24
+           in let x_26 :: Int = store [2, x_25]
+              in x_26
+    t2 :: Int -> Int = \ (p_3 :: Int) ->
+        let x_27 :: Int = fetch p_3[1]
+        in let x_28 :: Int = fetch x_27[0]
+           in let x_30 :: Int = case x_28 == 1 of
+                    False -> let x_29 :: Int = t0 x_27
+                      in let u_3 :: Int = update x_27 [1, x_29]
+                         in x_29
+                    True -> fetch x_27[1]
+              in let x_31 :: Int = fetch x_30[0]
+                 in let j_4 :: Int -> Int = \ (v_3 :: Int) ->
+                          let x_32 :: Int = fetch v_3[0]
+                          in case x_32 == 3 of
+                               False -> let x_33 :: Int = store [8]
+                                 in x_33
+                               True -> let x_34 :: Int = fetch v_3[1]
+                                 in let x_35 :: Int = fetch v_3[2]
+                                    in let x_36 :: Int = store [12, 0]
+                                       in let u_4 :: Int = update x_36 [12, x_34]
+                                          in let x_37 :: Int = store [13, 0]
+                                             in let u_5 :: Int = update x_37 [13, x_35]
+                                                in let x_38 :: Int = store [10, x_36, x_37]
+                                                   in x_38
+                    in case x_31 == 4 of
+                         False -> let x_39 :: Int = store [5]
+                           in j_4 x_39
+                         True -> let x_40 :: Int = fetch x_30[1]
+                           in let x_41 :: Int = fetch x_30[2]
+                              in let x_42 :: Int = store [3, x_40, x_41]
+                                 in j_4 x_42
+  in let b_1 :: Bool = 1 > n
+     in let j_7 :: Int -> Int = \ (v_5 :: Int) ->
+              let x_43 :: Int = fetch v_5[0]
+              in let j_6 :: Int -> Int = \ (v_6 :: Int) ->
+                       let x_44 :: Int = fetch v_6[0]
+                       in let j_5 :: Int -> Int = \ (v_7 :: Int) ->
+                                let x_45 :: Int = f0 v_7
+                                in x_45
+                          in case x_44 == 3 of
+                               False -> let x_46 :: Int = store [8]
+                                 in j_5 x_46
+                               True -> let x_47 :: Int = fetch v_6[1]
+                                 in let x_48 :: Int = fetch v_6[2]
+                                    in let x_49 :: Int = store [12, 0]
+                                       in let u_6 :: Int = update x_49 [12, x_47]
+                                          in let x_50 :: Int = store [13, 0]
+                                             in let u_7 :: Int = update x_50 [13, x_48]
+                                                in let x_51 :: Int = store [10, x_49, x_50]
+                                                   in j_5 x_51
+                 in case x_43 == 4 of
+                      False -> let x_52 :: Int = store [5]
+                        in j_6 x_52
+                      True -> let x_53 :: Int = fetch v_5[1]
+                        in let x_54 :: Int = fetch v_5[2]
+                           in let x_55 :: Int = store [3, x_53, x_54]
+                              in j_6 x_55
+        in case b_1 of
+             False -> let x_56 :: Int = store [11, 0, 0]
+               in let u_8 :: Int = update x_56 [11, 1, n]
+                  in let x_57 :: Int = store [4, 1, x_56]
+                     in j_7 x_57
+             True -> let x_58 :: Int = store [6]
+               in j_7 x_58
+---- C
+#include <stdint.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <math.h>
+
+/* Data.Bool_Type.Bool: False=0, True=1 */
+
+static int64_t f0(int64_t p);
+static int64_t t0(int64_t p_1);
+static int64_t t1(int64_t p_2);
+static int64_t t2(int64_t p_3);
+static int64_t j_1(int64_t v) {
+  int64_t f_1 = ((int64_t *)v)[0];
+  int64_t x_1 = f_1;
+  int64_t r_2;
+  switch ((x_1 == 7)) {
+  case 0: {
+  int64_t f_3 = ((int64_t *)v)[1];
+  int64_t x_2 = f_3;
+  int64_t f_4 = ((int64_t *)v)[2];
+  int64_t x_3 = f_4;
+  int64_t f_5 = ((int64_t *)x_3)[0];
+  int64_t x_4 = f_5;
+  int64_t r_6;
+  switch ((x_4 == 1)) {
+  case 0: {
+  int64_t x_5 = t2(x_3);
+  int64_t *u_7 = (int64_t *)x_3;
+  u_7[0] = 1;
+  u_7[1] = x_5;
+  int64_t u = 0;
+  r_6 = x_5; break; }
+  case 1: {
+  int64_t f_8 = ((int64_t *)x_3)[1];
+  r_6 = f_8; break; }
+  default: abort();
+  }
+  int64_t x_6 = r_6;
+  int64_t x_7 = f0(x_6);
+  int64_t f_9 = ((int64_t *)x_2)[0];
+  int64_t x_8 = f_9;
+  int64_t r_10;
+  switch ((x_8 == 1)) {
+  case 0: {
+  int64_t x_9 = t1(x_2);
+  int64_t *u_11 = (int64_t *)x_2;
+  u_11[0] = 1;
+  u_11[1] = x_9;
+  int64_t u_1 = 0;
+  r_10 = x_9; break; }
+  case 1: {
+  int64_t f_12 = ((int64_t *)x_2)[1];
+  r_10 = f_12; break; }
+  default: abort();
+  }
+  int64_t x_10 = r_10;
+  int64_t f_13 = ((int64_t *)x_10)[1];
+  int64_t x_11 = f_13;
+  int64_t x_12 = (x_11 + x_7);
+  r_2 = x_12; break; }
+  case 1: {
+  int64_t f_14 = ((int64_t *)v)[1];
+  int64_t x_13 = f_14;
+  r_2 = x_13; break; }
+  default: abort();
+  }
+  return r_2;
+}
+static int64_t f0(int64_t p) {
+  int64_t f_0 = ((int64_t *)p)[0];
+  int64_t x = f_0;
+  int64_t r_15;
+  switch ((x == 8)) {
+  case 0: {
+  int64_t f_16 = ((int64_t *)p)[1];
+  int64_t x_14 = f_16;
+  int64_t f_17 = ((int64_t *)p)[2];
+  int64_t x_15 = f_17;
+  int64_t *n_18 = malloc(3 * sizeof(int64_t));
+  n_18[0] = 9;
+  n_18[1] = x_14;
+  n_18[2] = x_15;
+  int64_t x_16 = (int64_t)n_18;
+  r_15 = j_1(x_16); break; }
+  case 1: {
+  int64_t *n_19 = malloc(2 * sizeof(int64_t));
+  n_19[0] = 7;
+  n_19[1] = 0;
+  int64_t x_17 = (int64_t)n_19;
+  r_15 = j_1(x_17); break; }
+  default: abort();
+  }
+  return r_15;
+}
+static int64_t t0(int64_t p_1) {
+  int64_t f_20 = ((int64_t *)p_1)[1];
+  int64_t x_18 = f_20;
+  int64_t f_21 = ((int64_t *)p_1)[2];
+  int64_t x_19 = f_21;
+  int64_t x_20 = (x_18 + 1);
+  int b = (x_20 > x_19);
+  int64_t r_22;
+  switch (b) {
+  case 0: {
+  int64_t *n_23 = malloc(3 * sizeof(int64_t));
+  n_23[0] = 11;
+  n_23[1] = 0;
+  n_23[2] = 0;
+  int64_t x_21 = (int64_t)n_23;
+  int64_t *u_24 = (int64_t *)x_21;
+  u_24[0] = 11;
+  u_24[1] = x_20;
+  u_24[2] = x_19;
+  int64_t u_2 = 0;
+  int64_t *n_25 = malloc(3 * sizeof(int64_t));
+  n_25[0] = 4;
+  n_25[1] = x_20;
+  n_25[2] = x_21;
+  int64_t x_22 = (int64_t)n_25;
+  r_22 = x_22; break; }
+  case 1: {
+  int64_t *n_26 = malloc(1 * sizeof(int64_t));
+  n_26[0] = 6;
+  int64_t x_23 = (int64_t)n_26;
+  r_22 = x_23; break; }
+  default: abort();
+  }
+  return r_22;
+}
+static int64_t t1(int64_t p_2) {
+  int64_t f_27 = ((int64_t *)p_2)[1];
+  int64_t x_24 = f_27;
+  int64_t x_25 = (x_24 * x_24);
+  int64_t *n_28 = malloc(2 * sizeof(int64_t));
+  n_28[0] = 2;
+  n_28[1] = x_25;
+  int64_t x_26 = (int64_t)n_28;
+  return x_26;
+}
+static int64_t j_4(int64_t v_3) {
+  int64_t f_35 = ((int64_t *)v_3)[0];
+  int64_t x_32 = f_35;
+  int64_t r_36;
+  switch ((x_32 == 3)) {
+  case 0: {
+  int64_t *n_37 = malloc(1 * sizeof(int64_t));
+  n_37[0] = 8;
+  int64_t x_33 = (int64_t)n_37;
+  r_36 = x_33; break; }
+  case 1: {
+  int64_t f_38 = ((int64_t *)v_3)[1];
+  int64_t x_34 = f_38;
+  int64_t f_39 = ((int64_t *)v_3)[2];
+  int64_t x_35 = f_39;
+  int64_t *n_40 = malloc(2 * sizeof(int64_t));
+  n_40[0] = 12;
+  n_40[1] = 0;
+  int64_t x_36 = (int64_t)n_40;
+  int64_t *u_41 = (int64_t *)x_36;
+  u_41[0] = 12;
+  u_41[1] = x_34;
+  int64_t u_4 = 0;
+  int64_t *n_42 = malloc(2 * sizeof(int64_t));
+  n_42[0] = 13;
+  n_42[1] = 0;
+  int64_t x_37 = (int64_t)n_42;
+  int64_t *u_43 = (int64_t *)x_37;
+  u_43[0] = 13;
+  u_43[1] = x_35;
+  int64_t u_5 = 0;
+  int64_t *n_44 = malloc(3 * sizeof(int64_t));
+  n_44[0] = 10;
+  n_44[1] = x_36;
+  n_44[2] = x_37;
+  int64_t x_38 = (int64_t)n_44;
+  r_36 = x_38; break; }
+  default: abort();
+  }
+  return r_36;
+}
+static int64_t t2(int64_t p_3) {
+  int64_t f_29 = ((int64_t *)p_3)[1];
+  int64_t x_27 = f_29;
+  int64_t f_30 = ((int64_t *)x_27)[0];
+  int64_t x_28 = f_30;
+  int64_t r_31;
+  switch ((x_28 == 1)) {
+  case 0: {
+  int64_t x_29 = t0(x_27);
+  int64_t *u_32 = (int64_t *)x_27;
+  u_32[0] = 1;
+  u_32[1] = x_29;
+  int64_t u_3 = 0;
+  r_31 = x_29; break; }
+  case 1: {
+  int64_t f_33 = ((int64_t *)x_27)[1];
+  r_31 = f_33; break; }
+  default: abort();
+  }
+  int64_t x_30 = r_31;
+  int64_t f_34 = ((int64_t *)x_30)[0];
+  int64_t x_31 = f_34;
+  int64_t r_45;
+  switch ((x_31 == 4)) {
+  case 0: {
+  int64_t *n_46 = malloc(1 * sizeof(int64_t));
+  n_46[0] = 5;
+  int64_t x_39 = (int64_t)n_46;
+  r_45 = j_4(x_39); break; }
+  case 1: {
+  int64_t f_47 = ((int64_t *)x_30)[1];
+  int64_t x_40 = f_47;
+  int64_t f_48 = ((int64_t *)x_30)[2];
+  int64_t x_41 = f_48;
+  int64_t *n_49 = malloc(3 * sizeof(int64_t));
+  n_49[0] = 3;
+  n_49[1] = x_40;
+  n_49[2] = x_41;
+  int64_t x_42 = (int64_t)n_49;
+  r_45 = j_4(x_42); break; }
+  default: abort();
+  }
+  return r_45;
+}
+static int64_t j_5(int64_t v_7) {
+  int64_t x_45 = f0(v_7);
+  return x_45;
+}
+static int64_t j_6(int64_t v_6) {
+  int64_t f_51 = ((int64_t *)v_6)[0];
+  int64_t x_44 = f_51;
+  int64_t r_52;
+  switch ((x_44 == 3)) {
+  case 0: {
+  int64_t *n_53 = malloc(1 * sizeof(int64_t));
+  n_53[0] = 8;
+  int64_t x_46 = (int64_t)n_53;
+  r_52 = j_5(x_46); break; }
+  case 1: {
+  int64_t f_54 = ((int64_t *)v_6)[1];
+  int64_t x_47 = f_54;
+  int64_t f_55 = ((int64_t *)v_6)[2];
+  int64_t x_48 = f_55;
+  int64_t *n_56 = malloc(2 * sizeof(int64_t));
+  n_56[0] = 12;
+  n_56[1] = 0;
+  int64_t x_49 = (int64_t)n_56;
+  int64_t *u_57 = (int64_t *)x_49;
+  u_57[0] = 12;
+  u_57[1] = x_47;
+  int64_t u_6 = 0;
+  int64_t *n_58 = malloc(2 * sizeof(int64_t));
+  n_58[0] = 13;
+  n_58[1] = 0;
+  int64_t x_50 = (int64_t)n_58;
+  int64_t *u_59 = (int64_t *)x_50;
+  u_59[0] = 13;
+  u_59[1] = x_48;
+  int64_t u_7 = 0;
+  int64_t *n_60 = malloc(3 * sizeof(int64_t));
+  n_60[0] = 10;
+  n_60[1] = x_49;
+  n_60[2] = x_50;
+  int64_t x_51 = (int64_t)n_60;
+  r_52 = j_5(x_51); break; }
+  default: abort();
+  }
+  return r_52;
+}
+static int64_t j_7(int64_t v_5) {
+  int64_t f_50 = ((int64_t *)v_5)[0];
+  int64_t x_43 = f_50;
+  int64_t r_61;
+  switch ((x_43 == 4)) {
+  case 0: {
+  int64_t *n_62 = malloc(1 * sizeof(int64_t));
+  n_62[0] = 5;
+  int64_t x_52 = (int64_t)n_62;
+  r_61 = j_6(x_52); break; }
+  case 1: {
+  int64_t f_63 = ((int64_t *)v_5)[1];
+  int64_t x_53 = f_63;
+  int64_t f_64 = ((int64_t *)v_5)[2];
+  int64_t x_54 = f_64;
+  int64_t *n_65 = malloc(3 * sizeof(int64_t));
+  n_65[0] = 3;
+  n_65[1] = x_53;
+  n_65[2] = x_54;
+  int64_t x_55 = (int64_t)n_65;
+  r_61 = j_6(x_55); break; }
+  default: abort();
+  }
+  return r_61;
+}
+
+int64_t sumSquares(int64_t n) {
+  int b_1 = (1 > n);
+  int64_t r_66;
+  switch (b_1) {
+  case 0: {
+  int64_t *n_67 = malloc(3 * sizeof(int64_t));
+  n_67[0] = 11;
+  n_67[1] = 0;
+  n_67[2] = 0;
+  int64_t x_56 = (int64_t)n_67;
+  int64_t *u_68 = (int64_t *)x_56;
+  u_68[0] = 11;
+  u_68[1] = 1;
+  u_68[2] = n;
+  int64_t u_8 = 0;
+  int64_t *n_69 = malloc(3 * sizeof(int64_t));
+  n_69[0] = 4;
+  n_69[1] = 1;
+  n_69[2] = x_56;
+  int64_t x_57 = (int64_t)n_69;
+  r_66 = j_7(x_57); break; }
+  case 1: {
+  int64_t *n_70 = malloc(1 * sizeof(int64_t));
+  n_70[0] = 6;
+  int64_t x_58 = (int64_t)n_70;
+  r_66 = j_7(x_58); break; }
+  default: abort();
+  }
+  return r_66;
+}
+---- reference interpreter
+[(0,0),(1,1),(10,385),(100,338350)]
+==== combinators
+node kinds (tag: kind):
+fields (kind.field: kinds):
+results of thunk code (kind: kinds):
+joins (site: kinds):
+recursive applications (lambda shape: result):
+---- low code
+-- type: Int -> Int
+\ (n :: Int) ->
+  let x :: Int = 100 - n
+  in x
+---- C
+#include <stdint.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <math.h>
+
+
+
+int64_t combinators(int64_t n) {
+  int64_t x = (100 - n);
+  return x;
+}
+---- reference interpreter
+[(0,100),(7,93)]
+==== church (known at compile time)
+-- type: Int
+-- data Bool = False | True
+letrec
+  f0 :: Int -> Int -> Int = \ (p :: Int) (p_1 :: Int) ->
+      let x :: Int = fetch p[0]
+      in case x == 3 of
+           False -> let x_1 :: Int = fetch p[0]
+             in let j_1 :: Int -> Int = \ (v_1 :: Int) ->
+                      let x_2 :: Int = v_1 + 1
+                      in let x_3 :: Int = x_2 + 1
+                         in let x_4 :: Int = x_3 + 1
+                            in x_4
+                in case x_1 == 3 of
+                     False -> let x_5 :: Int = fetch p[0]
+                       in let j_2 :: Int -> Int = \ (v_2 :: Int) ->
+                                let x_6 :: Int = v_2 + 1
+                                in let x_7 :: Int = x_6 + 1
+                                   in let x_8 :: Int = x_7 + 1
+                                      in j_1 x_8
+                          in case x_5 == 3 of
+                               False -> let x_9 :: Int = p_1 + 1
+                                 in let x_10 :: Int = x_9 + 1
+                                    in let x_11 :: Int = x_10 + 1
+                                       in j_2 x_11
+                               True -> let x_12 :: Int = fetch p[1]
+                                 in let x_13 :: Int = f0 x_12 p_1
+                                    in j_2 x_13
+                     True -> let x_14 :: Int = fetch p[1]
+                       in let x_15 :: Int = fetch x_14[0]
+                          in let j_3 :: Int -> Int = \ (v_3 :: Int) ->
+                                   j_1 v_3
+                             in case x_15 == 3 of
+                                  False -> let x_16 :: Int = store [9, 0, 0]
+                                    in let x_17 :: Int = store [6, 0, 0]
+                                       in let u :: Int = update x_17 [6, p, p_1]
+                                          in let u_1 :: Int = update x_16 [9, x_14, x_17]
+                                             in let x_18 :: Int = f2 x_16
+                                                in j_3 x_18
+                                  True -> let x_19 :: Int = fetch x_14[1]
+                                    in let x_20 :: Int = store [9, 0, 0]
+                                       in let x_21 :: Int = store [6, 0, 0]
+                                          in let u_2 :: Int = update x_21 [6, p, p_1]
+                                             in let u_3 :: Int = update x_20 [9, x_14, x_21]
+                                                in let x_22 :: Int = f1 x_19 x_20
+                                                   in j_3 x_22
+           True -> let x_23 :: Int = fetch p[1]
+             in let x_24 :: Int = fetch x_23[0]
+                in case x_24 == 3 of
+                     False -> let x_25 :: Int = store [9, 0, 0]
+                       in let x_26 :: Int = store [8, 0, 0]
+                          in let u_4 :: Int = update x_26 [8, p, p_1]
+                             in let u_5 :: Int = update x_25 [9, x_23, x_26]
+                                in let x_27 :: Int = f2 x_25
+                                   in x_27
+                     True -> let x_28 :: Int = fetch x_23[1]
+                       in let x_29 :: Int = store [9, 0, 0]
+                          in let x_30 :: Int = store [8, 0, 0]
+                             in let u_6 :: Int = update x_30 [8, p, p_1]
+                                in let u_7 :: Int = update x_29 [9, x_23, x_30]
+                                   in let x_31 :: Int = f1 x_28 x_29
+                                      in x_31
+  f1 :: Int -> Int -> Int = \ (p_2 :: Int) (p_3 :: Int) ->
+      let x_32 :: Int = fetch p_2[0]
+      in case x_32 == 3 of
+           False -> let x_33 :: Int = store [9, 0, 0]
+             in let u_8 :: Int = update x_33 [9, p_2, p_3]
+                in let x_34 :: Int = f2 x_33
+                   in x_34
+           True -> let x_35 :: Int = fetch p_2[1]
+             in let x_36 :: Int = store [9, 0, 0]
+                in let u_9 :: Int = update x_36 [9, p_2, p_3]
+                   in let x_37 :: Int = f1 x_35 x_36
+                      in x_37
+  f2 :: Int -> Int = \ (p_4 :: Int) ->
+      let x_38 :: Int = fetch p_4[0]
+      in let x_40 :: Int = case x_38 == 1 of
+               False -> let x_39 :: Int = t4 p_4
+                 in let u_10 :: Int = update p_4 [1, x_39]
+                    in x_39
+               True -> fetch p_4[1]
+         in let x_41 :: Int = fetch x_40[1]
+            in let x_42 :: Int = x_41 + 1
+               in let x_43 :: Int = x_42 + 1
+                  in let x_44 :: Int = x_43 + 1
+                     in x_44
+  t0 :: Int -> Int = \ (p_5 :: Int) ->
+      let x_45 :: Int = fetch p_5[1]
+      in let x_46 :: Int = fetch p_5[2]
+         in let x_47 :: Int = fetch x_45[1]
+            in let x_48 :: Int = f0 x_47 x_46
+               in let x_49 :: Int = store [2, x_48]
+                  in x_49
+  t1 :: Int -> Int = \ (p_6 :: Int) ->
+      let x_50 :: Int = fetch p_6[1]
+      in let x_51 :: Int = fetch p_6[2]
+         in let x_52 :: Int = fetch x_50[0]
+            in let j_6 :: Int -> Int = \ (v_6 :: Int) ->
+                     let x_53 :: Int = store [2, v_6]
+                     in x_53
+               in case x_52 == 3 of
+                    False -> let x_54 :: Int = x_51 + 1
+                      in let x_55 :: Int = x_54 + 1
+                         in let x_56 :: Int = x_55 + 1
+                            in j_6 x_56
+                    True -> let x_57 :: Int = fetch x_50[1]
+                      in let x_58 :: Int = f0 x_57 x_51
+                         in j_6 x_58
+  t2 :: Int -> Int = \ (p_7 :: Int) ->
+      let x_59 :: Int = fetch p_7[1]
+      in let x_60 :: Int = fetch p_7[2]
+         in let x_61 :: Int = fetch x_59[0]
+            in let j_7 :: Int -> Int = \ (v_7 :: Int) ->
+                     let x_62 :: Int = store [2, v_7]
+                     in x_62
+               in case x_61 == 3 of
+                    False -> let x_63 :: Int = fetch x_60[0]
+                      in let x_69 :: Int = case x_63 == 1 of
+                               False -> case x_63 == 5 of
+                                   False -> case x_63 == 6 of
+                                       False -> case x_63 == 7 of
+                                           False -> case x_63 == 8 of
+                                               False -> let x_64 :: Int = t4 x_60
+                                                 in let u_11 :: Int = update x_60 [1, x_64]
+                                                    in x_64
+                                               True -> let x_65 :: Int = t3 x_60
+                                                 in let u_12 :: Int = update x_60 [1, x_65]
+                                                    in x_65
+                                           True -> let x_66 :: Int = t2 x_60
+                                             in let u_13 :: Int = update x_60 [1, x_66]
+                                                in x_66
+                                       True -> let x_67 :: Int = t1 x_60
+                                         in let u_14 :: Int = update x_60 [1, x_67]
+                                            in x_67
+                                   True -> let x_68 :: Int = t0 x_60
+                                     in let u_15 :: Int = update x_60 [1, x_68]
+                                        in x_68
+                               True -> fetch x_60[1]
+                         in let x_70 :: Int = fetch x_69[1]
+                            in let x_71 :: Int = x_70 + 1
+                               in let x_72 :: Int = x_71 + 1
+                                  in let x_73 :: Int = x_72 + 1
+                                     in j_7 x_73
+                    True -> let x_74 :: Int = fetch x_59[1]
+                      in let x_75 :: Int = fetch x_74[0]
+                         in let j_8 :: Int -> Int = \ (v_8 :: Int) ->
+                                  j_7 v_8
+                            in case x_75 == 3 of
+                                 False -> let x_76 :: Int = store [9, 0, 0]
+                                   in let u_16 :: Int = update x_76 [9, x_74, x_60]
+                                      in let x_77 :: Int = f2 x_76
+                                         in j_8 x_77
+                                 True -> let x_78 :: Int = fetch x_74[1]
+                                   in let x_79 :: Int = store [9, 0, 0]
+                                      in let u_17 :: Int = update x_79 [9, x_74, x_60]
+                                         in let x_80 :: Int = f1 x_78 x_79
+                                            in j_8 x_80
+  t3 :: Int -> Int = \ (p_8 :: Int) ->
+      let x_81 :: Int = fetch p_8[1]
+      in let x_82 :: Int = fetch p_8[2]
+         in let x_83 :: Int = fetch x_81[0]
+            in let j_9 :: Int -> Int = \ (v_9 :: Int) ->
+                     let x_84 :: Int = store [2, v_9]
+                     in x_84
+               in case x_83 == 3 of
+                    False -> let x_85 :: Int = fetch x_81[0]
+                      in let j_10 :: Int -> Int = \ (v_10 :: Int) ->
+                               let x_86 :: Int = v_10 + 1
+                               in let x_87 :: Int = x_86 + 1
+                                  in let x_88 :: Int = x_87 + 1
+                                     in j_9 x_88
+                         in case x_85 == 3 of
+                              False -> let x_89 :: Int = x_82 + 1
+                                in let x_90 :: Int = x_89 + 1
+                                   in let x_91 :: Int = x_90 + 1
+                                      in j_10 x_91
+                              True -> let x_92 :: Int = fetch x_81[1]
+                                in let x_93 :: Int = f0 x_92 x_82
+                                   in j_10 x_93
+                    True -> let x_94 :: Int = fetch x_81[1]
+                      in let x_95 :: Int = fetch x_94[0]
+                         in let j_11 :: Int -> Int = \ (v_11 :: Int) ->
+                                  j_9 v_11
+                            in case x_95 == 3 of
+                                 False -> let x_96 :: Int = store [9, 0, 0]
+                                   in let x_97 :: Int = store [6, 0, 0]
+                                      in let u_18 :: Int = update x_97 [6, x_81, x_82]
+                                         in let u_19 :: Int = update x_96 [9, x_94, x_97]
+                                            in let x_98 :: Int = f2 x_96
+                                               in j_11 x_98
+                                 True -> let x_99 :: Int = fetch x_94[1]
+                                   in let x_100 :: Int = store [9, 0, 0]
+                                      in let x_101 :: Int = store [6, 0, 0]
+                                         in let u_20 :: Int = update x_101 [6, x_81, x_82]
+                                            in let u_21 :: Int = update x_100 [9, x_94, x_101]
+                                               in let x_102 :: Int = f1 x_99 x_100
+                                                  in j_11 x_102
+  t4 :: Int -> Int = \ (p_9 :: Int) ->
+      let x_103 :: Int = fetch p_9[1]
+      in let x_104 :: Int = fetch p_9[2]
+         in let x_105 :: Int = fetch x_103[0]
+            in let j_12 :: Int -> Int = \ (v_12 :: Int) ->
+                     let x_106 :: Int = store [2, v_12]
+                     in x_106
+               in case x_105 == 3 of
+                    False -> let x_107 :: Int = fetch x_103[0]
+                      in let j_13 :: Int -> Int = \ (v_13 :: Int) ->
+                               let x_108 :: Int = v_13 + 1
+                               in let x_109 :: Int = x_108 + 1
+                                  in let x_110 :: Int = x_109 + 1
+                                     in j_12 x_110
+                         in case x_107 == 3 of
+                              False -> let x_111 :: Int = fetch x_104[0]
+                                in let x_117 :: Int = case x_111 == 1 of
+                                         False -> case x_111 == 5 of
+                                             False -> case x_111 == 6 of
+                                                 False -> case x_111 == 7 of
+                                                     False -> case x_111 == 8 of
+                                                         False -> let x_112 :: Int = t4 x_104
+                                                           in let u_22 :: Int = update x_104 [1, x_112]
+                                                              in x_112
+                                                         True -> let x_113 :: Int = t3 x_104
+                                                           in let u_23 :: Int = update x_104 [1, x_113]
+                                                              in x_113
+                                                     True -> let x_114 :: Int = t2 x_104
+                                                       in let u_24 :: Int = update x_104 [1, x_114]
+                                                          in x_114
+                                                 True -> let x_115 :: Int = t1 x_104
+                                                   in let u_25 :: Int = update x_104 [1, x_115]
+                                                      in x_115
+                                             True -> let x_116 :: Int = t0 x_104
+                                               in let u_26 :: Int = update x_104 [1, x_116]
+                                                  in x_116
+                                         True -> fetch x_104[1]
+                                   in let x_118 :: Int = fetch x_117[1]
+                                      in let x_119 :: Int = x_118 + 1
+                                         in let x_120 :: Int = x_119 + 1
+                                            in let x_121 :: Int = x_120 + 1
+                                               in j_13 x_121
+                              True -> let x_122 :: Int = fetch x_103[1]
+                                in let x_123 :: Int = fetch x_122[0]
+                                   in let j_14 :: Int -> Int = \ (v_14 :: Int) ->
+                                            j_13 v_14
+                                      in case x_123 == 3 of
+                                           False -> let x_124 :: Int = store [9, 0, 0]
+                                             in let u_27 :: Int = update x_124 [9, x_122, x_104]
+                                                in let x_125 :: Int = f2 x_124
+                                                   in j_14 x_125
+                                           True -> let x_126 :: Int = fetch x_122[1]
+                                             in let x_127 :: Int = store [9, 0, 0]
+                                                in let u_28 :: Int = update x_127 [9, x_122, x_104]
+                                                   in let x_128 :: Int = f1 x_126 x_127
+                                                      in j_14 x_128
+                    True -> let x_129 :: Int = fetch x_103[1]
+                      in let x_130 :: Int = fetch x_129[0]
+                         in let j_15 :: Int -> Int = \ (v_15 :: Int) ->
+                                  j_12 v_15
+                            in case x_130 == 3 of
+                                 False -> let x_131 :: Int = store [9, 0, 0]
+                                   in let x_132 :: Int = store [7, 0, 0]
+                                      in let u_29 :: Int = update x_132 [7, x_103, x_104]
+                                         in let u_30 :: Int = update x_131 [9, x_129, x_132]
+                                            in let x_133 :: Int = f2 x_131
+                                               in j_15 x_133
+                                 True -> let x_134 :: Int = fetch x_129[1]
+                                   in let x_135 :: Int = store [9, 0, 0]
+                                      in let x_136 :: Int = store [7, 0, 0]
+                                         in let u_31 :: Int = update x_136 [7, x_103, x_104]
+                                            in let u_32 :: Int = update x_135 [9, x_129, x_136]
+                                               in let x_137 :: Int = f1 x_134 x_135
+                                                  in j_15 x_137
+in let x_138 :: Int = store [9, 0, 0]
+   in let x_139 :: Int = store [4]
+      in let x_140 :: Int = store [9, 0, 0]
+         in let x_141 :: Int = store [3, 0]
+            in let u_33 :: Int = update x_141 [3, x_139]
+               in let x_142 :: Int = store [5, 0, 0]
+                  in let x_143 :: Int = store [3, 0]
+                     in let u_34 :: Int = update x_143 [3, x_141]
+                        in let u_35 :: Int = update x_142 [5, x_143, 0]
+                           in let u_36 :: Int = update x_140 [9, x_141, x_142]
+                              in let u_37 :: Int = update x_138 [9, x_139, x_140]
+                                 in let x_144 :: Int = f2 x_138
+                                    in x_144
+54

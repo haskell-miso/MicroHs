@@ -1,6 +1,7 @@
 -- A code generator from low code to C, as an example of a user written backend
 -- for Staged.Low.  Since low code is first order, strict, and monomorphic,
--- the translation is direct:
+-- the translation is direct (the primitives are those of the runtime system,
+-- with the same meaning as in src/runtime/eval.c):
 --  * Int, Word, Double, Float and Char are C scalars;
 --  * a data type whose constructors all have no fields is an int (the tag);
 --  * other data types are structs with a tag and a union of the fields,
@@ -8,7 +9,8 @@
 --  * local functions (let and letrec bound lambdas) become C functions; the
 --    variables of the enclosing scope they use are passed as extra arguments
 --    (lambda lifting), which is always possible since functions never escape;
---  * a case is a switch, a let is a declaration.
+--  * a case is a switch, a let is a declaration;
+--  * a heap cell (store, fetch, update) is a malloced array of words.
 -- The main entry point is toC; the generated program has a function with
 -- the given name that takes the free variables (and the parameters, if the
 -- program is a function) and returns the result.
@@ -194,6 +196,26 @@ gen env at =
         _ -> return "/* bad constructor */0"
     LFail m -> do
       emit ("fprintf(stderr, \"%s\\n\", " ++ show m ++ "); abort();")
+      return "0"
+    -- the heap: a cell is an array of words
+    LStore as -> do
+      as' <- mapM (gen env) as
+      v <- freshC "n"
+      emit ("int64_t *" ++ v ++ " = malloc(" ++ show (length as) ++ " * sizeof(int64_t));")
+      mapM_ (\ (i, a) -> emit (v ++ "[" ++ show i ++ "] = " ++ a ++ ";")) (zip [0 :: Int ..] as')
+      return ("(int64_t)" ++ v)
+    LFetch q i -> do
+      -- read now: an update later must not change the value
+      q' <- gen env q
+      v <- freshC "f"
+      emit ("int64_t " ++ v ++ " = ((int64_t *)" ++ q' ++ ")[" ++ show i ++ "];")
+      return v
+    LUpdate q as -> do
+      q' <- gen env q
+      as' <- mapM (gen env) as
+      v <- freshC "u"
+      emit ("int64_t *" ++ v ++ " = (int64_t *)" ++ q' ++ ";")
+      mapM_ (\ (i, a) -> emit (v ++ "[" ++ show i ++ "] = " ++ a ++ ";")) (zip [0 :: Int ..] as')
       return "0"
 
 -- Functions are lambda lifted to C functions.  The captured variables are the
