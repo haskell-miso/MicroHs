@@ -1,9 +1,13 @@
 module LowGrin(main) where
+import MicroHs.Exp(Exp(..))
+import qualified MicroHs.Expr as E
+import MicroHs.Ident(mkIdent)
 import Staged.Low
 import Staged.Low.C(toC)
 import Staged.Low.Grin
 
--- Lazy programs in the lambda calculus of MicroHs (MicroHs.Exp), compiled to
+-- Lazy programs in the lambda calculus of MicroHs (MicroHs.Exp, the
+-- compiler's own type: compile with -i../src -i../mhs), compiled to
 -- low code with a heap (GRIN's store, fetch and update) by a staged call by
 -- need interpreter (Staged.Low.Grin), and from low code to C (Staged.Low.C).
 -- For every program: the static analysis that the compiler accumulates, the
@@ -12,20 +16,20 @@ import Staged.Low.Grin
 -- run by tests/LowGrin.sh, which compares with the reference interpreter.
 
 v :: String -> Exp
-v = Var
+v = Var . mkIdent
 
 lam :: String -> Exp -> Exp
-lam = Lam
+lam x = Lam (mkIdent x)
 
 (@@) :: Exp -> Exp -> Exp
 (@@) = App
 infixl 9 @@
 
 int :: Int -> Exp
-int = Lit . EInt
+int = Lit . E.LInt
 
 prim :: String -> Exp
-prim = Lit . EPrim
+prim = Lit . E.LPrim
 
 op :: String -> Exp -> Exp -> Exp
 op o a b = prim o @@ a @@ b
@@ -45,15 +49,18 @@ cons x xs = prim "O" @@ x @@ xs
 caseList :: Exp -> Exp -> String -> String -> Exp -> Exp
 caseList xs n y ys c = xs @@ n @@ lam y (lam ys c)
 
--- Programs
+-- Programs: global definitions, as after desugaring (MicroHs.Desugar.LDef)
+
+defs :: [(String, Exp)] -> Prog
+defs ds = [ (mkIdent g, e) | (g, e) <- ds ]
 
 factorial :: Prog
-factorial =
+factorial = defs
   [ ("main", lam "n" (prim "Y" @@ lam "fact" (lam "m"
                 (ifte (op "==" (v "m") (int 0)) (int 1) (op "*" (v "m") (v "fact" @@ op "-" (v "m") (int 1))))) @@ v "n")) ]
 
 listLib :: Prog
-listLib =
+listLib = defs
   [ ("zipWith", lam "f" (lam "xs" (lam "ys" (caseList (v "xs") nil "x" "xt" (caseList (v "ys") nil "y" "yt"
                    (cons (v "f" @@ v "x" @@ v "y") (v "zipWith" @@ v "f" @@ v "xt" @@ v "yt")))))))
   , ("tail", lam "xs" (caseList (v "xs") nil "x" "xt" (v "xt")))
@@ -66,24 +73,24 @@ listLib =
 
 -- fibs = 0 : 1 : zipWith (+) fibs (tail fibs); main n = fibs !! n
 fibs :: Prog
-fibs = listLib ++
+fibs = listLib ++ defs
   [ ("fibs", cons (int 0) (cons (int 1) (v "zipWith" @@ prim "+" @@ v "fibs" @@ (v "tail" @@ v "fibs"))))
   , ("main", lam "n" (v "nth" @@ v "fibs" @@ v "n")) ]
 
 -- main n = sum (map (\ x -> x * x) [1 .. n])
 sumSquares :: Prog
-sumSquares = listLib ++
+sumSquares = listLib ++ defs
   [ ("main", lam "n" (v "sum" @@ (v "map" @@ lam "x" (op "*" (v "x") (v "x")) @@ (v "enumFromTo" @@ int 1 @@ v "n")))) ]
 
 -- combinators: main = S K K (+ 1), a lazy argument that is never used, and C
 combinators :: Prog
-combinators =
+combinators = defs
   [ ("loop", v "loop")
   , ("main", lam "n" (prim "S" @@ prim "K" @@ prim "K" @@ (prim "K" @@ (prim "C" @@ prim "-" @@ v "n" @@ int 100) @@ v "loop"))) ]
 
 -- known at compile time: 6 * 7 with Church numerals
 church :: Prog
-church =
+church = defs
   [ ("two", lam "f" (lam "x" (v "f" @@ (v "f" @@ v "x"))))
   , ("three", lam "f" (lam "x" (v "f" @@ (v "f" @@ (v "f" @@ v "x")))))
   , ("times", lam "m" (lam "n" (lam "f" (v "m" @@ (v "n" @@ v "f")))))

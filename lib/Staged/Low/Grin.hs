@@ -1,9 +1,11 @@
 -- Compiling lazy lambda programs to low code with a heap, by staging.
 --
--- The programs are the lambda calculus of the MicroHs compiler (MicroHs.Exp:
--- variables, applications, lambdas, and literals, with integers, the
+-- The programs are the lambda calculus of the MicroHs compiler, MicroHs.Exp
+-- (variables, applications, lambdas, and literals: integers, characters, the
 -- primitives of the runtime system, and the combinators), as a list of global
--- definitions.  The result is low code that uses the heap operations of GRIN
+-- definitions, like the definitions of a program after desugaring
+-- (MicroHs.Desugar.LDef).  Using it needs the compiler's modules on the
+-- search path (-isrc -imhs).  The result is low code that uses the heap operations of GRIN
 -- (store, fetch, update; Boquist 1999), which Staged.Low.C turns into C.
 --
 -- The compiler is a call by need interpreter that runs at compile time (the
@@ -45,27 +47,26 @@
 -- function (they are evaluated in the compiler, and again per call when that
 -- generates code).
 module Staged.Low.Grin(
-  Exp(..), Lit(..), Prog,
+  Prog,
   compileInt, compileFun,
   Info, analyse, showInfo,
   interp,
   ) where
 import Prelude
+import Data.Char(ord)
 import Data.List(nub, sort, intercalate)
 import Data.Maybe(fromMaybe)
-import Staged.Low
+import MicroHs.Exp(Exp(..))
+import MicroHs.Expr(Lit(..))
+import MicroHs.Ident(Ident, mkIdent, unIdent)
+import Staged.Low(Low, lowInt, lowBool, genLet, store, fetch, update)
 import Staged.Low.Internal(LowExp(..), LowTy(..), toLow, fromLow)
 
 -------------------------------------------------------------------------------
 -- Programs
 
--- The lambda calculus of MicroHs (MicroHs.Exp)
-data Exp = Var String | App Exp Exp | Lam String Exp | Lit Lit
-
-data Lit = EInt Int | EPrim String
-
--- Global definitions; the program is "main"
-type Prog = [(String, Exp)]
+-- Global definitions (MicroHs.Desugar.LDef); the program is main
+type Prog = [(Ident, Exp)]
 
 -- The primitives, with their arities.  The comparisons return Scott encoded
 -- Bools (False = \ f t -> f, True = \ f t -> t), as in MicroHs.
@@ -107,9 +108,9 @@ combinator p =
     "Y"   -> Just $ l "f" $ a [l "x" (a [f, a [x, x]]), l "x" (a [f, a [x, x]])]
     _ -> Nothing
   where
-    v c = Var ['%', c]
+    v c = Var (mkIdent ['%', c])
     x = v 'x'; y = v 'y'; z = v 'z'; w = v 'w'; f = v 'f'
-    l cs b = foldr (\ c r -> Lam ['%', c] r) b cs
+    l cs b = foldr (\ c r -> Lam (mkIdent ['%', c]) r) b cs
     a = foldl1 App
 
 -------------------------------------------------------------------------------
@@ -126,20 +127,22 @@ type Table = [(Int, Code)]
 -- Label a program: the table, and the labelled global definitions
 labelProg :: Prog -> (Table, [(String, T)])
 labelProg prog =
-  let go (tbl, gs) (g, e) = let (t, _, tbl') = labelExp [] e tbl in (tbl', (g, t) : gs)
+  let go (tbl, gs) (g, e) = let (t, _, tbl') = labelExp [] e tbl in (tbl', (unIdent g, t) : gs)
       (table, globs) = foldl go ([], []) prog
   in  (table, reverse globs)
 
 labelExp :: [String] -> Exp -> Table -> (T, [String], Table)
 labelExp bound e tbl =
   case e of
-    Var x | x `elem` bound -> (UVar x, [x], tbl)
-          | otherwise -> (UVar x, [], tbl)
-    Lit (EInt n) -> (UInt n, [], tbl)
-    Lit (EPrim p) | Just c <- combinator p -> labelExp [] c tbl
+    Var i | x <- unIdent i, x `elem` bound -> (UVar x, [x], tbl)
+          | otherwise -> (UVar (unIdent i), [], tbl)
+    Lit (LInt n) -> (UInt n, [], tbl)
+    Lit (LChar c) -> (UInt (ord c), [], tbl)
+    Lit (LPrim p) | Just c <- combinator p -> labelExp [] c tbl
                   | Just n <- lookup p primitives -> (UPrim p n, [], tbl)
                   | otherwise -> error ("Staged.Low.Grin: unknown primitive " ++ p)
-    Lam x b ->
+    Lit _ -> error "Staged.Low.Grin: literal not supported"
+    Lam i b | x <- unIdent i ->
       let (b', fv, tbl1) = labelExp (x : bound) b tbl
           fv' = nub (filter (/= x) fv)
           l = length tbl1
@@ -1104,20 +1107,22 @@ data RT = RT RV
 
 interp :: Prog -> Maybe Int -> Int
 interp prog arg =
-  let genv = [ (g, ev [] e) | (g, e) <- prog ]
+  let genv = [ (unIdent g, ev [] e) | (g, e) <- prog ]
       look env x = case lookup x env of
                      Just (RT v) -> v
                      Nothing -> fromMaybe (error ("unbound " ++ x)) (lookup x genv)
       ev env e =
         case e of
-          Var x -> look env x
-          Lam x b -> RFun (\ a -> ev ((x, a) : env) b)
+          Var x -> look env (unIdent x)
+          Lam x b -> RFun (\ a -> ev ((unIdent x, a) : env) b)
           App f a -> case ev env f of
                        RFun g -> g (RT (ev env a))
                        RInt _ -> error "interp: applying an integer"
-          Lit (EInt n) -> RInt n
-          Lit (EPrim p) | Just c <- combinator p -> ev [] c
+          Lit (LInt n) -> RInt n
+          Lit (LChar c) -> RInt (ord c)
+          Lit (LPrim p) | Just c <- combinator p -> ev [] c
                         | otherwise -> primR p
+          Lit _ -> error "interp: literal not supported"
       primR p
         | p `elem` arith = RFun (\ (RT a) -> RFun (\ (RT b) -> RInt (arithOp p (int a) (int b))))
         | p `elem` compares = RFun (\ (RT a) -> RFun (\ (RT b) -> if cmpOp p (int a) (int b) then true else false))
