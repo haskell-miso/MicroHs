@@ -157,6 +157,8 @@ A fatal runtime error, or a JavaScript exception from an `unsafe` import, inside
 in the browser the page lives on, so every later call into Haskell then throws an `Error` saying that the
 runtime has stopped (instead of running on a corrupted runtime).
 See `tests/JSVal.hs` and `tests/JSCallback.hs` for examples.
+The runtime can also be compiled to JavaScript on its own (`make rts.js`) to run combinator files with node:
+`node rts.js prog.comb`.
 The targets `emscripten_js` (for node) and `quickjs` (for a plain JavaScript shell, e.g., `qjs out.js`)
 generate JavaScript only (`-sWASM=0`) instead of WebAssembly; the JavaScript FFI works the same way.
 The targets `browser` and `browser_js` are for the browser (no node file system access);
