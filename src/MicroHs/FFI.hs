@@ -198,11 +198,13 @@ mkHdr (ImpJS _ s, f, ty, _) | s == "wrapper" || s == "wrapper sync" =
       if jsKind (checkIO ior) /= KJSVal then bad "the result must be IO JSVal" else
       mkMhsFun f ("return mhs_from_JSVal(s, 1, " ++ call ++ ")")
 mkHdr (ImpJS sf s, f, ty, _) =
-  -- The JavaScript code is compiled (once) on the JavaScript side into a function
-  -- with parameters $1, $2, ..., see Module.mhsjs in eval.c.
-  -- The code is passed as the last argument (a C string).
+  -- The JavaScript code becomes an EM_JS function, mhs_js_<f>, whose parameters are
+  -- $1, $2, ... (so the code can use them directly), emitted into the output by
+  -- emscripten like any other JavaScript in the program.  It is passed to _EM_JS
+  -- (what EM_JS expands to) as a C string, so the code need not consist of C tokens.
+  -- The code is an expression or statements (with 'return'), see jsIsStatements.
   -- With 'unsafe' a JavaScript exception is fatal, with 'safe' it is turned into
-  -- a Haskell JSException.  With 'interruptible' the JavaScript function is async
+  -- a Haskell JSException.  With 'interruptible' the code runs as an async function
   -- (so it can use await) and the C function returns its Promise as a JSVal; the
   -- desugarer wraps the import so that the Haskell thread waits for the Promise
   -- (MicroHs.Desugar.jsAwait, the IO.jsawait primitive), which converts the result.
@@ -211,89 +213,107 @@ mkHdr (ImpJS sf s, f, ty, _) =
       rk = jsKind rt
       n = length as
       ixs = [0 .. n-1]
-      -- Argument names: $i in EM_ASM code
-      argName i = '$' : show i
-      srcName = argName n
-      jsArgConv t i =
+      param i = '$' : show (i + 1)
+      jsName = "mhs_js_" ++ f
+      ctypeOf t =
         case jsKind t of
-          KJSVal -> "Module.mhsjs.getJSVal(" ++ argName i ++ ")"
-          KBool  -> "!!" ++ argName i
-          _      -> argName i
-      jsargs = intercalate ", " (zipWith jsArgConv as ixs)
-      -- The code is compiled at run time, so the JavaScript optimizer does not see what
-      -- it uses, and would remove, e.g., a function in an embedded JavaScript file that is
-      -- only used by this code.  So pass a function (it is never called) that mentions
-      -- the identifiers of the code.
-      uses = case jsIdents s of
-               [] -> ""
-               is -> ", () => [" ++ intercalate ", " is ++ "]"
-      body = "Module.mhsjs.call(" ++ srcName ++ ", " ++ show n ++ ", [" ++ jsargs ++ "]" ++ uses ++ ")"
-      -- The Promise of the async function; an exception in the argument conversion
-      -- (e.g. a freed JSVal) becomes a rejected Promise, i.e. a JSException.
-      promiseBody = "try { return Module.mhsjs.newJSVal(Module.mhsjs.callAsync(" ++ srcName ++ ", " ++ show n ++ ", [" ++ jsargs ++ "]" ++ uses ++ ")) }" ++
-                    " catch (e) { return Module.mhsjs.newJSVal(Promise.reject(e)) }"
-      -- JavaScript code for the result, and the C type of the result
-      (jsres0, ctype, asmm) =
+          KJSVal  -> "int"
+          KBool   -> "int"
+          KInt    -> "intptr_t"
+          KWord   -> "uintptr_t"
+          KDouble -> "double"
+          KFloat  -> "double"
+          KPtr    -> "void *"
+          KUnit   -> "void"
+      params = "(" ++ intercalate ", " [ ctypeOf t ++ " " ++ param i | (t, i) <- zip as ixs ] ++ ")"
+      -- Convert the arguments in place.
+      conv t i =
+        case jsKind t of
+          KJSVal -> param i ++ " = Module.mhsjs.getJSVal(" ++ param i ++ "); "
+          KBool  -> param i ++ " = !!" ++ param i ++ "; "
+          _      -> ""
+      -- The code can use mhsjs, the JSVal table.
+      convs = "var mhsjs = Module.mhsjs; " ++ concat (zipWith conv as ixs)
+      -- The code as a function of no arguments; the newline ends a trailing // comment.
+      async = if sf == Interruptible then "async " else ""
+      thunk = if jsIsStatements s then "(" ++ async ++ "() => {" ++ s ++ "\n})" else "(" ++ async ++ "() => (" ++ s ++ "\n))"
+      value = thunk ++ "()"
+      res =
         case rk of
-          KUnit   -> (body, "void", "")
-          KJSVal  -> ("return Module.mhsjs.newJSVal(" ++ body ++ ")", "int", "_INT")
-          KBool   -> ("return (" ++ body ++ ") ? 1 : 0", "int", "_INT")
-          KInt    -> ("return " ++ body, "int", "_INT")
-          KWord   -> ("return " ++ body, "int", "_INT")
-          KDouble -> ("return " ++ body, "double", "_DOUBLE")
-          KFloat  -> ("return " ++ body, "double", "_DOUBLE")
-          KPtr    -> ("return " ++ body, "void *", "_PTR")
-      -- With safe/interruptible any JavaScript exception (also in the argument
-      -- conversion, e.g. a freed JSVal) is saved and raised as a JSException by mhs_js_check_error.
-      -- With unsafe a JavaScript exception is fatal: it unwinds the C stack, so the runtime
-      -- is marked as stopped (Module.mhsjs.fatal) before the exception propagates.
-      jsres = if sf == Unsafe then "try { " ++ jsres0 ++ " } catch (e) { throw Module.mhsjs.fatal(e); }" else
-              "try { " ++ jsres0 ++ " } catch (e) { Module.mhsjs.error = e; Module.mhsjs.hasError = true; return 0; }"
-      cargs = intercalate ", " (zipWith mkJSArg as ixs ++ [cString s])
+          KUnit   -> value ++ "; return;"
+          KJSVal  -> "return Module.mhsjs.newJSVal(" ++ value ++ ");"
+          KBool   -> "return " ++ value ++ " ? 1 : 0;"
+          _       -> "return " ++ value ++ ";"
+      body
+        -- The Promise of the async function; an exception in the argument conversion
+        -- (e.g. a freed JSVal) becomes a rejected Promise, i.e. a JSException.
+        | sf == Interruptible =
+            "try { " ++ convs ++ "return Module.mhsjs.newJSVal(" ++ value ++ "); }" ++
+            " catch (e) { return Module.mhsjs.newJSVal(Promise.reject(e)); }"
+        -- With unsafe a JavaScript exception is fatal: it unwinds the C stack, so the runtime
+        -- is marked as stopped (Module.mhsjs.fatal) before the exception propagates.
+        | sf == Unsafe =
+            "try { " ++ convs ++ res ++ " } catch (e) { throw Module.mhsjs.fatal(e); }"
+        -- With safe any JavaScript exception (also in the argument conversion, e.g. a
+        -- freed JSVal) is saved and raised as a JSException by mhs_js_check_error.
+        | otherwise =
+            "try { " ++ convs ++ res ++ " } catch (e) { Module.mhsjs.error = e; Module.mhsjs.hasError = true; return 0; }"
+      cret = if sf == Interruptible then "int" else ctypeOf rt
+      emjs = "_EM_JS(" ++ cret ++ ", " ++ jsName ++ ", " ++ jsName ++ ", " ++ params ++ ", " ++ cString ("{ " ++ body ++ " }") ++ ")\n"
+      cargs = intercalate ", " (zipWith mkJSArg as ixs)
+      call = jsName ++ "(" ++ cargs ++ ")"
+      check = if sf == Unsafe then "" else "mhs_js_check_error(); "
       ret r = case rk of
                 KUnit -> "return mhs_from_Unit(s, " ++ show n ++ ")"
                 _     -> "return mhs_from_" ++ jsTypeName rt ++ "(s, " ++ show n ++ ", " ++ r ++ ")"
-      check = if sf == Unsafe then "" else "mhs_js_check_error(); "
-      asmCall = "EM_ASM" ++ asmm ++ "({ " ++ jsres ++ " }, " ++ cargs ++ ")"
-      fbody call =
+      fbody =
         case rk of
           KUnit -> call ++ "; " ++ check ++ ret ""
-          _     -> ctype ++ " r = " ++ call ++ "; " ++ check ++ ret "r"
-      promiseCall = "EM_ASM_INT({ " ++ promiseBody ++ " }, " ++ cargs ++ ")"
+          _     -> cret ++ " r = " ++ call ++ "; " ++ check ++ ret "r"
   in  if sf == Interruptible then
-        mkMhsFun f ("int r = " ++ promiseCall ++ "; return mhs_from_JSVal(s, " ++ show n ++ ", r)")
+        emjs ++ mkMhsFun f ("int r = " ++ call ++ "; return mhs_from_JSVal(s, " ++ show n ++ ", r)")
       else
-        mkMhsFun f (fbody asmCall)
+        emjs ++ mkMhsFun f fbody
 mkHdr _ = undefined
 
--- The identifiers in JavaScript code that can refer to something defined outside it.
--- It is an approximation from above: words in strings and comments are included.
--- Property names (after a '.'), reserved words, and the parameters ($1, ...) are not.
-jsIdents :: String -> [String]
-jsIdents = nub . filter ok . go False
+-- Is the JavaScript code statements (a function body) rather than an expression?
+-- Yes if, outside brackets, strings and comments, it has a ';' or the word 'return',
+-- or it starts with a word that only starts a statement.  This is the same choice
+-- as trying the code as an expression first and as statements if that is a syntax
+-- error, which is what the code did when it was compiled at run time.
+jsIsStatements :: String -> Bool
+jsIsStatements src =
+  case tokens (0 :: Int) src of
+    ts -> any topStmt ts || (case [ w | (0, Word w) <- take 1 ts ] of
+                               [w] -> w `elem` stmtWords
+                               _   -> False)
   where
-    go _ [] = []
-    go dot acs@(c:cs)
-      | isIdStart c = case span isIdChar acs of
-                        (w, r) -> if dot then go False r else w : go False r
-      | isDigit c   = go False (dropWhile isIdChar cs)     -- a number, e.g., 0xff or 1e5
-      | c == '.'    = case span (== '.') cs of
-                        ([], r) -> go True r
-                        (_, r)  -> go False r              -- spread, ...x
-      | isSpace c   = go dot cs
-      | otherwise   = go False cs
-    isIdStart c = isAscii c && (isAlpha c || c == '_' || c == '$')
-    isIdChar c = isAscii c && (isAlphaNum c || c == '_' || c == '$')
-    ok w = w `notElem` jsReserved && not (isParam w)
-    isParam ('$' : ds) = all isDigit ds
-    isParam _ = False
-    jsReserved =
-      ["break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete",
-       "do", "else", "enum", "export", "extends", "false", "finally", "for", "function", "if",
-       "implements", "import", "in", "instanceof", "interface", "let", "new", "null", "package",
-       "private", "protected", "public", "return", "static", "super", "switch", "this", "throw",
-       "true", "try", "typeof", "var", "void", "while", "with", "yield", "await", "async", "of",
-       "get", "set", "arguments", "eval", "Module", "mhsjs"]
+    topStmt (0, Semi) = True
+    topStmt (0, Word "return") = True
+    topStmt _ = False
+    stmtWords = ["if", "for", "while", "do", "switch", "try", "throw", "let", "const", "var",
+                 "function", "class", "return", "break", "continue"]
+    tokens _ [] = []
+    tokens d ('/':'/':cs) = tokens d (dropWhile (/= '\n') cs)
+    tokens d ('/':'*':cs) = tokens d (skipComment cs)
+    tokens d (c:cs)
+      | c `elem` "\"'`" = tokens d (skipString c cs)
+      | c `elem` "([{"   = tokens (d + 1) cs
+      | c `elem` ")]}"   = tokens (max 0 (d - 1)) cs
+      | c == ';'         = (d, Semi) : tokens d cs
+      | isAlpha c || c == '_' || c == '$' =
+          case span (\ x -> isAlphaNum x || x == '_' || x == '$') (c:cs) of
+            (w, r) -> (d, Word w) : tokens d r
+      | otherwise        = tokens d cs
+    skipComment ('*':'/':cs) = cs
+    skipComment (_:cs) = skipComment cs
+    skipComment [] = []
+    skipString q ('\\':_:cs) = skipString q cs
+    skipString q (c:cs) | c == q = cs
+                        | otherwise = skipString q cs
+    skipString _ [] = []
+
+data JSToken = Semi | Word String
 
 arity :: EType -> Int
 arity = length . fst . getArrows . dropForallContext
