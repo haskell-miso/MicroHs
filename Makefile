@@ -113,6 +113,12 @@ generated/mhseval.js:	$(RTS)/*.c $(RTS)/*.h $(RTS)/*/*.h
 	@mkdir -p bin
 	$(EMCCEVAL) $(RTS)/comb.c $(EMCCLIBS) -o generated/mhseval.js
 
+# Standalone runtime compiled to JavaScript.  Run a combinator file with
+#   node rts.js prog.comb arg ...
+RTSJSOPTS= -O3 -sEXPORTED_FUNCTIONS=_main,_mhs_run_comb,_malloc,_free -sEXPORTED_RUNTIME_METHODS=stringToNewUTF8,UTF8ToString,setValue,HEAPU8 -sALLOW_MEMORY_GROWTH -sTOTAL_STACK=5MB -sNODERAWFS -sSINGLE_FILE -DUSE_SYSTEM_RAW -sEXIT_RUNTIME -Wno-address-of-packed-member
+rts.js:	$(RTS)/*.c $(RTS)/*.h $(RTS)/*/*.h
+	$(EMCC) $(RTSJSOPTS) $(RTSINC) $(RTS)/eval.c $(RTS)/rts.c $(EMCCLIBS) -o rts.js
+
 bin/mhs.js:	mhs.js
 	@mkdir -p bin
 	echo '#! /usr/bin/env node' > bin/mhs.js
@@ -212,7 +218,7 @@ runtestgsan: bin/mhsevalsane bin/gmhs
 
 # Run test examples going via JavaScript
 runtestemscripten: bin/mhseval bin/mhs bin/cpphs
-	cd tests; $(MAKE) MHS=../bin/mhs cache; MHSDIR=.. $(MAKE) MHSTARGET="-temscripten" MHS="../bin/mhs -CR -oout.js" EVAL="$(NODE) $(NODEFLAGS) out.js" info test errtest testpipenonblockioem testjsflag testjsbits
+	cd tests; $(MAKE) MHS=../bin/mhs cache; MHSDIR=.. $(MAKE) MHSTARGET="-temscripten" MHS="../bin/mhs -CR -oout.js" EVAL="$(NODE) $(NODEFLAGS) out.js" info test errtest testpipenonblockioem testjsflag testjsbits testforimpjs testjsval testjscallback
 
 runtestinstemscripten:
 	cd tests; $(MAKE) MHSTARGET="-temscripten" MHS="mhs.js -oout.js" EVAL="$(NODE) $(NODEFLAGS) out.js" test
