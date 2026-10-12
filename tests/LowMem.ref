@@ -1,0 +1,103 @@
+---- squares, reflected
+-- type: Mem -> Int -> Int
+-- data Mem = Mem
+-- data (,) #0 #1 = (,) #0 #1
+-- data Bool = False | True
+\ (m0 :: Mem) (n :: Int) ->
+  letrec
+    sumUp :: Mem -> Int -> Int -> (Int, Mem) = \ (m :: Mem) (i :: Int) (acc :: Int) ->
+        case i == n of
+          False -> sumUp m (i + 1) (acc + peek m[i])
+          True -> (acc, m)
+  in letrec
+       fill :: Mem -> Int -> Mem = \ (m_1 :: Mem) (i_1 :: Int) ->
+           case i_1 == n of
+             False -> fill (poke m_1[i_1] (i_1 * i_1)) (i_1 + 1)
+             True -> m_1
+     in let x1 :: (Int, Mem) = sumUp (fill m0 0) 0 0
+        in case x1 of
+             (x3, x4) -> x3
+---- squares, C
+#include <stdint.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <math.h>
+
+/* the memory of the program (Staged.Low.Mem) */
+#ifndef MHS_MEM_WORDS
+#define MHS_MEM_WORDS (1 << 20)
+#endif
+static int64_t mhs_mem[MHS_MEM_WORDS];
+
+/* Staged.Low.Mem: Mem=0 */
+struct c { int tag; union { struct { void* f0; void* f1; } c; } u; };
+/* Data.Bool_Type.Bool: False=0, True=1 */
+
+static int64_t sumUp(int64_t n, int m, int64_t i, int64_t acc);
+static int64_t sumUp(int64_t n, int m, int64_t i, int64_t acc) {
+  int64_t r_0;
+  switch ((i == n)) {
+  case 0: {
+  r_0 = sumUp(n, m, (i + 1), (acc + mhs_mem[i])); break; }
+  case 1: {
+  r_0 = acc; break; }
+  default: abort();
+  }
+  return r_0;
+}
+static int fill(int64_t n, int m_1, int64_t i_1);
+static int fill(int64_t n, int m_1, int64_t i_1) {
+  int r_1;
+  switch ((i_1 == n)) {
+  case 0: {
+  mhs_mem[i_1] = (i_1 * i_1);
+  r_1 = fill(n, 0, (i_1 + 1)); break; }
+  case 1: {
+  r_1 = m_1; break; }
+  default: abort();
+  }
+  return r_1;
+}
+
+int64_t squares(int m0, int64_t n) {
+  int64_t x1 = sumUp(n, fill(n, m0, 0), 0, 0);
+  int64_t r_2;
+  int64_t x3 = x1;
+  int x4 = 0;
+  r_2 = x3;
+  return r_2;
+}
+---- squares, JavaScript
+// data Mem = Mem
+// data (,) #0 #1 = (,) #0 #1
+// data Bool = False | True
+const mhs_mem = new Array(1 << 20).fill(0);  // the memory of the program (Staged.Low.Mem)
+function squares(m0, n) {
+  function sumUp(m, i, acc) {
+    let r_0;
+    switch ((i === n ? 1 : 0)) {
+    case 0: {
+    r_0 = sumUp(m, (i + 1), (acc + mhs_mem[i])); break; }
+    case 1: {
+    r_0 = acc; break; }
+    }
+    return r_0;
+  }
+  function fill(m_1, i_1) {
+    let r_1;
+    switch ((i_1 === n ? 1 : 0)) {
+    case 0: {
+    mhs_mem[i_1] = (i_1 * i_1);
+    r_1 = fill(0, (i_1 + 1)); break; }
+    case 1: {
+    r_1 = m_1; break; }
+    }
+    return r_1;
+  }
+  const x1 = sumUp(fill(m0, 0), 0, 0);
+  let r_2;
+  const x3 = x1;
+  const x4 = 0;
+  r_2 = x3;
+  return r_2;
+}

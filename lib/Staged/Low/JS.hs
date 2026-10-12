@@ -52,6 +52,16 @@ gen at =
     LLit l _ -> return (jsLit l)
     LPrim p _ -> return ("/* primitive " ++ p ++ " */")
     LForeign _ c _ -> return c
+    LApp (LPrim "$peek" _) [m, a] -> do
+      _ <- gen m
+      a' <- gen a
+      return ("mhs_mem[" ++ a' ++ "]")
+    LApp (LPrim "$poke" _) [m, a, w] -> do
+      _ <- gen m
+      a' <- gen a
+      w' <- gen w
+      emit ("mhs_mem[" ++ a' ++ "] = " ++ w' ++ ";")
+      return "0"
     LApp f as -> do
       as' <- mapM gen as
       case f of
@@ -82,6 +92,11 @@ gen at =
       r <- freshJ "r"
       emit ("let " ++ r ++ ";")
       case typeOf s of
+        st | Just i <- memTupleIndex st, [(_, xs, b)] <- alts -> do
+          -- a pair with a Mem component: the other component is the value
+          mapM_ (\ (j, (x, _)) -> emit ("const " ++ jsName x ++ " = " ++ (if j == i then s' else "0") ++ ";")) (zip [0 :: Int ..] xs)
+          b' <- gen b
+          emit (r ++ " = " ++ b' ++ ";")
         TData _ _ decl | declNewtype decl, [(_, [(x, _)], b)] <- alts -> do
           emit ("const " ++ jsName x ++ " = " ++ s' ++ ";")
           b' <- gen b
@@ -106,6 +121,7 @@ gen at =
     LCon c t as -> do
       as' <- mapM gen as
       case t of
+        _ | Just i <- memTupleIndex t -> return (as' !! i)
         _ | conNewtype c, [a] <- as' -> return a
         _ | isEnumTy t -> return (show (conTag c))
         _ -> return ("[" ++ intercalate ", " (show (conTag c) : as') ++ "]")
@@ -181,6 +197,7 @@ toJS name p =
       ((r, ss), _) = unJ (block (gen body)) ([], 0)
   in  unlines $
         [ "// " ++ show d | d <- progDecls p ] ++
+        [ "const mhs_mem = new Array(1 << 20).fill(0);  // the memory of the program (Staged.Low.Mem)" | usesMem body ] ++
         [ "function " ++ name ++ "(" ++ intercalate ", " args ++ ") {" ] ++
         map ("  " ++) ss ++
         [ "  return " ++ r ++ ";", "}" ]

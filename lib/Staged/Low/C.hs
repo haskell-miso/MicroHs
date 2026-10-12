@@ -8,7 +8,10 @@
 --  * local functions (let and letrec bound lambdas) become C functions; the
 --    variables of the enclosing scope they use are passed as extra arguments
 --    (lambda lifting), which is always possible since functions never escape;
---  * a case is a switch, a let is a declaration.
+--  * a case is a switch, a let is a declaration;
+--  * memory (Staged.Low.Mem) is one global array of words; a Mem value is a
+--    dummy int (the C compiler removes it), peek and poke are an array access
+--    and an assignment, and a pair with a Mem component is its other component.
 -- The main entry point is toC; the generated program has a function with
 -- the given name that takes the free variables (and the parameters, if the
 -- program is a function) and returns the result.
@@ -62,6 +65,8 @@ cType t =
     TDouble -> "double"
     TFloat -> "float"
     TChar -> "int32_t"
+    _ | isMemTy t -> "int"
+    TData _ as _ | Just i <- memTupleIndex t -> cType (as !! i)
     TData n _ d | isEnum d -> "int"
                 | otherwise -> "struct " ++ cName n ++ "*"
     TFun _ _ -> "void*"       -- never happens: functions are not values
@@ -120,6 +125,16 @@ gen env at =
     LLit l _ -> return (cLit l)
     LPrim p _ -> return p
     LForeign _ c _ -> return c
+    LApp (LPrim "$peek" _) [m, a] -> do
+      _ <- gen env m
+      a' <- gen env a
+      return ("mhs_mem[" ++ a' ++ "]")
+    LApp (LPrim "$poke" _) [m, a, w] -> do
+      _ <- gen env m
+      a' <- gen env a
+      w' <- gen env w
+      emit ("mhs_mem[" ++ a' ++ "] = " ++ w' ++ ";")
+      return "0"
     LApp f as -> do
       as' <- mapM (gen env) as
       case f of
@@ -155,6 +170,11 @@ gen env at =
       r <- freshC "r"
       emit (cType (typeOf at) ++ " " ++ r ++ ";")
       case (st, cons) of
+        _ | Just i <- memTupleIndex st, [(_, xs, b)] <- alts -> do
+          -- a pair with a Mem component: the other component is the value
+          mapM_ (\ (j, (x, t)) -> emit (cType t ++ " " ++ cVar x ++ " = " ++ (if j == i then s' else "0") ++ ";")) (zip [0 :: Int ..] xs)
+          b' <- gen (addVars xs env) b
+          emit (r ++ " = " ++ b' ++ ";")
         (TData _ _ decl, _) | declNewtype decl, [(_, [(x, t)], b)] <- alts -> do
           emit (cType t ++ " " ++ cVar x ++ " = " ++ s' ++ ";")
           b' <- gen (addVars [(x, t)] env) b
@@ -181,6 +201,7 @@ gen env at =
     LCon c t as -> do
       as' <- mapM (gen env) as
       case t of
+        _ | Just i <- memTupleIndex t -> return (as' !! i)
         TData n _ decl
           | isEnum decl -> return (show (conTag c))
           | declNewtype decl -> return (head as')
@@ -312,6 +333,11 @@ toC name p =
               unlines (map ("  " ++) ss) ++ "  return " ++ r ++ ";\n}"
   in  unlines $
         [ "#include <stdint.h>", "#include <stdlib.h>", "#include <stdio.h>", "#include <math.h>", "" ] ++
+        (if usesMem (progBody p) then
+           [ "/* the memory of the program (Staged.Low.Mem) */"
+           , "#ifndef MHS_MEM_WORDS", "#define MHS_MEM_WORDS (1 << 20)", "#endif"
+           , "static int64_t mhs_mem[MHS_MEM_WORDS];", "" ]
+         else []) ++
         map cDecl (progDecls p) ++ [""] ++
         reverse (csFuns st) ++ [""] ++
         [entry]

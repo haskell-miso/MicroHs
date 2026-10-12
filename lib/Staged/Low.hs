@@ -25,6 +25,15 @@
 -- A type variable in low code stands for a value type: a generator that is
 -- polymorphic in a type that is used in low code needs a (LowRep a) constraint,
 -- which the compiler solves for every concrete type.
+--
+-- Low code can use memory: a flat array of words addressed by integers, as a
+-- value of type Mem that the operations take and return (peek, poke).  Memory
+-- is pure: the order of operations is a data dependency, so every pass is
+-- sound without knowing about effects.  A Mem is used linearly, at most once
+-- on a path (reflect checks it), and the backends erase it: the memory is one
+-- global array, a Mem costs nothing, and (a, Mem) is a.  Spliced low code
+-- cannot use memory (the runtime system has no such primitives); it is for
+-- code generators.
 module Staged.Low(
   Low, LowRep,
   LowTy(..), LowDecl(..), LowConDecl(..), LowCon(..), LowLit(..),
@@ -32,6 +41,7 @@ module Staged.Low(
   reflect, typeOf, arity, resultType, conFieldTypes, baseName, freeVars,
   lowPretty, lowPrettyTerm,
   Gen(..), runGen, gen, genRec, genLet,
+  Mem(..), tMem, isMemTy, memTupleIndex, peek, poke, usesMem,
   lowInt, lowWord, lowDouble, lowFloat, lowChar, lowString, lowBool,
   ) where
 import Prelude
@@ -458,10 +468,39 @@ reflect l =
         b' <- saturate b >>= etaTo (typeOf b)
         return (simplify b')
       (body, RS _ fs) = unR act (RS [] [])
-  in  LowProg { progType = typeOf body
-              , progFree = [ (n, t) | (_, _, n, t) <- fs ]
-              , progDecls = collectDecls body
-              , progBody = body }
+  in  case duplicatedMem body of
+        x : _ -> error ("Staged.Low.reflect: the memory " ++ x ++ " is used more than once")
+        [] ->
+          LowProg { progType = typeOf body
+                  , progFree = [ (n, t) | (_, _, n, t) <- fs ]
+                  , progDecls = collectDecls body
+                  , progBody = body }
+
+-- The memory variables that are consumed more than once on some path
+-- (names are unique after the read back).  Reading (peek) does not consume
+-- a memory; passing it on, storing it, or writing to it does.  The
+-- alternatives of a case are different paths: the uses are the most of any
+-- alternative, not the sum.
+duplicatedMem :: LowTerm -> [String]
+duplicatedMem t = [ x | (x, n) <- memUses t, n > 1 ]
+
+memUses :: LowTerm -> [(String, Int)]
+memUses at =
+  case at of
+    LVar x t | isMemTy t -> [(x, 1)]
+    LApp (LPrim "$peek" _) [LVar _ _, a] -> memUses a
+    LApp f as -> foldr (plus . memUses) [] (f : as)
+    LLam _ b -> memUses b
+    LLet _ _ e b -> memUses e `plus` memUses b
+    LLetRec bs b -> foldr (plus . memUses) (memUses b) [ e | (_, _, e) <- bs ]
+    LCase s _ alts d -> memUses s `plus` foldr (most . memUses) [] ([ b | (_, _, b) <- alts ] ++ maybe [] (: []) d)
+    LCon _ _ as -> foldr (plus . memUses) [] as
+    _ -> []
+  where
+    plus = merge (+)
+    most = merge max
+    merge f a b = [ (x, f (look x a) (look x b)) | x <- nub (map fst (a ++ b)) ]
+    look x m = maybe 0 id (lookup x m)
 
 -----------------------------------------------------------------------
 -- Pretty printing
@@ -485,6 +524,8 @@ ppT ind p at =
     LLit l _ -> ppLit l
     LPrim s _ -> s
     LForeign _ c _ -> "ffi:" ++ c
+    LApp (LPrim "$peek" _) [m, a] -> par (p > 9) $ "peek " ++ ppT ind 10 m ++ "[" ++ ppT ind 0 a ++ "]"
+    LApp (LPrim "$poke" _) [m, a, w] -> par (p > 9) $ "poke " ++ ppT ind 10 m ++ "[" ++ ppT ind 0 a ++ "] " ++ ppT ind 10 w
     LApp (LPrim op _) [a, b] | Just o <- infixOp op -> par (p > 5) $ ppT ind 6 a ++ " " ++ o ++ " " ++ ppT ind 6 b
     LApp f as -> par (p > 9) $ unwords (ppT ind 10 f : map (ppT ind 10) as)
     LLam xs b -> par (p > 0) $ "\\ " ++ unwords [ "(" ++ x ++ " :: " ++ show t ++ ")" | (x, t) <- xs ] ++ " ->" ++ nl (ind + 2) ++ ppT (ind + 2) 0 b
@@ -563,6 +604,50 @@ genRec f = Gen $ \ k -> [| let x = ~(f [| x |]) in ~(k [| x |]) |]
 
 genLet :: forall a b . LowRep a => Low a -> (Low a -> Low b) -> Low b
 genLet c f = [| let x = ~c in ~(f [| x |]) |]
+
+-----------------------------------------------------------------------
+-- Memory (see the top of the module).
+
+-- The memory as a value; it is never inspected
+data Mem = Mem
+
+tMem :: LowTy
+tMem = lowTyOf Mem
+
+isMemTy :: LowTy -> Bool
+isMemTy t = t == tMem
+
+-- A pair with a Mem component is its other component in the backends:
+-- the index of that component
+memTupleIndex :: LowTy -> Maybe Int
+memTupleIndex t =
+  case t of
+    TData n [a, b] _ | baseName n == "," ->
+      if isMemTy b && not (isMemTy a) then Just 0
+      else if isMemTy a && not (isMemTy b) then Just 1
+      else Nothing
+    _ -> Nothing
+
+-- Does a program use memory (for the backends: whether to declare it)
+usesMem :: LowTerm -> Bool
+usesMem at =
+  case at of
+    LPrim p _ -> p == "$peek" || p == "$poke"
+    LApp f as -> any usesMem (f : as)
+    LLam _ b -> usesMem b
+    LLet _ _ e b -> usesMem e || usesMem b
+    LLetRec bs b -> any (\ (_, _, e) -> usesMem e) bs || usesMem b
+    LCase s _ alts d -> usesMem s || any (\ (_, _, b) -> usesMem b) alts || maybe False usesMem d
+    LCon _ _ as -> any usesMem as
+    _ -> False
+
+-- The word at an address
+peek :: Low Mem -> Low Int -> Low Int
+peek m a = toLow (HApp (HPrim "$peek" (TFun [tMem, TInt] TInt)) [fromLow m, fromLow a])
+
+-- Store a word at an address; the memory afterwards
+poke :: Low Mem -> Low Int -> Low Int -> Low Mem
+poke m a w = toLow (HApp (HPrim "$poke" (TFun [tMem, TInt, TInt] tMem)) [fromLow m, fromLow a, fromLow w])
 
 -----------------------------------------------------------------------
 -- Compile time values as low code.
