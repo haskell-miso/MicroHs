@@ -82,6 +82,16 @@ sumSquares :: Prog
 sumSquares = listLib ++ defs
   [ ("main", lam "n" (v "sum" @@ (v "map" @@ lam "x" (op "*" (v "x") (v "x")) @@ (v "enumFromTo" @@ int 1 @@ v "n")))) ]
 
+-- main n = length (map (\ x -> x * x) [1 .. n]), with a tail recursive length
+-- that is strict in its count (seq; a lazy count would be a chain of thunks):
+-- the list is garbage as soon as it is made, so the collector runs with a
+-- small live set
+count :: Prog
+count = listLib ++ defs
+  [ ("len", lam "xs" (lam "acc" (caseList (v "xs") (v "acc") "x" "xt"
+               (lam "a" (prim "seq" @@ v "a" @@ (v "len" @@ v "xt" @@ v "a")) @@ op "+" (v "acc") (int 1)))))
+  , ("main", lam "n" (v "len" @@ (v "map" @@ lam "x" (op "*" (v "x") (v "x")) @@ (v "enumFromTo" @@ int 1 @@ v "n")) @@ int 0)) ]
+
 -- combinators: main = S K K (+ 1), a lazy argument that is never used, and C
 combinators :: Prog
 combinators = defs
@@ -104,16 +114,24 @@ report :: String -> Prog -> String
 report name prog =
   "==== " ++ name ++ "\n" ++
   showInfo prog True ++
-  "---- low code\n" ++ lowPretty (reflect (compileFun prog)) ++
+  "---- low code\n" ++ lowPretty (reflect (compileFun config prog)) ++
   "---- C\n" ++ cCode name prog
 
+-- A small memory, so that the collector runs: 8192 words, 2048 of them for
+-- the root stack
+config :: Config
+config = Config 8192 2048
+
 cCode :: String -> Prog -> String
-cCode name prog = toC name (reflect (compileFun prog))
+cCode name prog = toC name (reflect (compileFun config prog))
 
 cMain :: String -> String
 cMain name = unlines
   [ "int main(int argc, char **argv) {"
-  , "  for (int i = 1; i < argc; i++) printf(\"%lld\\n\", (long long)" ++ name ++ "(0, atoll(argv[i])));"
+  , "  for (int i = 1; i < argc; i++) {"
+  , "    printf(\"%lld\\n\", (long long)" ++ name ++ "(0, atoll(argv[i])));"
+  , "    fprintf(stderr, \"%s %s: %lld collections\\n\", \"" ++ name ++ "\", argv[i], (long long)mhs_mem[8]);"
+  , "  }"
   , "  return 0;"
   , "}" ]
 
@@ -134,11 +152,16 @@ main = do
   putStrLn "---- reference interpreter"
   print [ (n, interp sumSquares (Just n)) | n <- [0, 1, 10, 100] ]
 
+  putStr (lowString (report "count" count))
+  writeFile "LowLazy.count.c" (lowString (cCode "count" count ++ cMain "count"))
+  putStrLn "---- reference interpreter"
+  print [ (n, interp count (Just n)) | n <- [0, 1, 10, 300] ]
+
   putStr (lowString (report "combinators" combinators))
   writeFile "LowLazy.combinators.c" (lowString (cCode "combinators" combinators ++ cMain "combinators"))
   putStrLn "---- reference interpreter"
   print [ (n, interp combinators (Just n)) | n <- [0, 7] ]
 
   putStrLn "==== church (known at compile time)"
-  putStr (lowString (lowPretty (reflect (compileInt church))))
+  putStr (lowString (lowPretty (reflect (compileInt config church))))
   print (interp church Nothing)

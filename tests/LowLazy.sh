@@ -14,5 +14,6 @@ check() {
 check factorial "1 1 120 3628800 2432902008176640000" 0 1 5 10 20
 check fibs "0 1 1 55 102334155" 0 1 2 10 40
 check sumSquares "0 1 385 338350" 0 1 10 100
+check count "0 1 10 300" 0 1 10 300
 check combinators "100 93" 0 7
 rm -f LowLazy.*.exe

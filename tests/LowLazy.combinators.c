@@ -14,17 +14,35 @@ struct c { int tag; union { struct { void* f0; void* f1; } c; } u; };
 
 
 int64_t combinators(int m, int64_t n) {
-  mhs_mem[0] = 1;
-  int m_1 = 0;
-  int64_t x = (100 - n);
-  int64_t x1 = x;
+  mhs_mem[2] = 2064;
+  int m_6 = 0;
+  mhs_mem[3] = 5128;
+  int m_7 = 0;
+  mhs_mem[5] = 3064;
+  int m_8 = 0;
+  mhs_mem[0] = 2064;
+  int m_9 = 0;
+  mhs_mem[1] = 5128;
+  int m_10 = 0;
+  mhs_mem[4] = 16;
+  int m_11 = 0;
+  mhs_mem[8] = 0;
+  int m_12 = 0;
+  int64_t x = mhs_mem[4];
+  int64_t x_1 = (100 - n);
+  mhs_mem[4] = x;
+  int m_13 = 0;
+  int64_t x1_2 = x_1;
   int64_t r_0;
-  int64_t x3 = x1;
-  int x4 = 0;
-  r_0 = x3;
+  int64_t x3_1 = x1_2;
+  int x4_2 = 0;
+  r_0 = x3_1;
   return r_0;
 }
 int main(int argc, char **argv) {
-  for (int i = 1; i < argc; i++) printf("%lld\n", (long long)combinators(0, atoll(argv[i])));
+  for (int i = 1; i < argc; i++) {
+    printf("%lld\n", (long long)combinators(0, atoll(argv[i])));
+    fprintf(stderr, "%s %s: %lld collections\n", "combinators", argv[i], (long long)mhs_mem[8]);
+  }
   return 0;
 }

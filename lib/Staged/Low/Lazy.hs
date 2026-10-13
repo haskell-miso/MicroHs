@@ -49,12 +49,23 @@
 -- alternative applies a known closure in the compiler.  There is no generic
 -- eval or apply, and no interpreter is left.
 --
--- Not done: garbage collection (the allocator only bumps a pointer), and
--- sharing of thunks without run time parts across the calls of a recursive
--- function (they are evaluated in the compiler, and again per call when that
--- generates code).
+-- Memory: the run time data lives in the memory of Staged.Low (a flat array
+-- of words, as a value of type Mem that every generated function takes and
+-- returns; the backends erase it).  The memory has a header, a root stack,
+-- and two semispaces.  A node is a tag and its fields; a thunk is updated
+-- in place with an indirection (the negated tag) to its value.  Every
+-- pointer that generated code holds is in a root slot of the frame of the
+-- current function and read from the slot when used, since the collector, a
+-- semispace copy specialized to the node kinds of the program (gcCode),
+-- moves nodes.  A call in tail position reuses the frame of the caller, so
+-- a loop keeps the root stack flat.
+--
+-- Not done: a call in tail position is still a C call (the C stack grows
+-- with a loop), and sharing of thunks without run time parts across the
+-- calls of a recursive function (they are evaluated in the compiler, and
+-- again per call when that generates code).
 module Staged.Low.Lazy(
-  Prog,
+  Prog, Config(..), defaultConfig,
   compileInt, compileFun,
   Info, analyse, showInfo,
   interp,
@@ -172,12 +183,23 @@ data BoolV = BS Bool | BD (Low Bool)
 -- arguments, or a run time pointer to a node in weak head normal form (with
 -- the node kinds it can be)
 data V = VInt Int | VDInt (Low Int) | VBool BoolV | VBool1 BoolV E
-       | VClo Int [E] | VPrim String Int [E] | VPtr (Low Int) Tags
+       | VClo Int [E] | VPrim String Int [E] | VPtr Slot Tags
 
 -- An entry of an environment: a value, a thunk (a number, its label, the
 -- entries of its free variables), a global definition, or a run time pointer
 -- to a node that can be a thunk (a number, the pointer, the node kinds)
-data E = EV V | EThk Int Int [E] | EGlob String | ERef Int (Low Int) Tags
+data E = EV V | EThk Int Int [E] | EGlob String | ERef Int Slot Tags
+
+-- A pointer that generated code holds is kept in a root slot of the frame
+-- of the current function (on the root stack in memory), and read from the
+-- slot when it is used: the collector moves nodes, and updates the slots.
+-- A slot is its number in the frame.
+type Slot = Int
+
+-- A run time word for a field of a node or an argument of a function: an
+-- integer, or the pointer in a root slot (read just before it is used, after
+-- any allocation in between)
+data Leaf = LI (Low Int) | LP Slot
 
 -- The shape of a value or entry: what is known at compile time.  The run time
 -- words (the leaves: ShDInt, ShBool, ShPtr, ShRef) are abstracted.
@@ -307,8 +329,31 @@ data Ctx r = Ctx
   , cInfo  :: Info
   , cTable :: Table
   , cGlobs :: [(String, T)]
+  , cConf  :: Config
   , cFun   :: Key -> Low Mem -> [Low Int] -> Low Res
-  , cThk   :: NK -> Low Mem -> Low Int -> Low Res }
+  , cThk   :: NK -> Low Mem -> Low Int -> Low Res
+  , cGc    :: Low Mem -> Low Res }                     -- the collector: the new heap pointer
+
+-- The memory of a program: its size in words (the C array must be at least
+-- as big, see MHS_MEM_WORDS in Staged.Low.C), and the size of the root stack
+data Config = Config { memWords :: Int, stackWords :: Int }
+
+defaultConfig :: Config
+defaultConfig = Config 1048576 4096
+
+-- The layout of the memory: a header of words, the root stack, and the two
+-- semispaces (from, to) of the collector
+hpA, limA, fromA, toA, spA, semiA, freeA, scanA, gcsA, stackBase :: Int
+hpA = 0        -- the heap pointer: the next free word of the current space
+limA = 1       -- the end of the current space
+fromA = 2      -- the start of the current space
+toA = 3        -- the start of the other space
+spA = 4        -- the root stack pointer: the end of the roots
+semiA = 5      -- the size of a space
+freeA = 6      -- (during a collection) the next free word of the other space
+scanA = 7      -- (during a collection) the next node to scan in the other space
+gcsA = 8       -- the number of collections
+stackBase = 16 -- the start of the root stack
 
 -- The state along a path: the next number, the thunks (and pointers) forced
 -- on this path, the thunks stored on this path, the global definitions
@@ -316,10 +361,13 @@ data Ctx r = Ctx
 data GS = GS
   { gsNext   :: Int
   , gsMemo   :: [(Int, V)]
-  , gsStored :: [(Int, (Low Int, Tags))]
+  , gsStored :: [(Int, (Slot, Tags))]
   , gsGlobs  :: [(String, V)]
   , gsAnc    :: [Key]
-  , gsMem    :: Low Mem }
+  , gsMem    :: Low Mem
+  , gsFrame  :: Low Int         -- the start of the root slots of the current function
+  , gsSlots  :: Int             -- the number of root slots used
+  , gsTail   :: Bool }          -- is the expression in tail position of the function?
 
 newtype G r a = G (Ctx r -> GS -> (a -> GS -> r) -> r)
 
@@ -375,12 +423,179 @@ pokeG a w = do { m <- getMem; letM (poke m a w) }
 addr :: Low Int -> Int -> Low Int
 addr p i = if i == 0 then p else [| ~p + ~(lowInt i) |]
 
--- Allocate words: the address.  Word 0 of the memory is the heap pointer.
+-- The address in a root slot, now
+slotAddr :: Slot -> G r (Low Int)
+slotAddr i = do { f <- gsFrame <$> getS; peekG (addr f i) }
+
+-- Keep an address in a new root slot
+pushRoot :: Low Int -> G r Slot
+pushRoot w = do
+  s <- getS
+  let i = gsSlots s
+  pokeG (addr (gsFrame s) i) w
+  modS (\ s' -> s'{ gsSlots = i + 1 })
+  return i
+
+-- Tell the collector where the roots end (before an allocation or a call);
+-- the root stack must not have overflowed
+publishSp :: G r ()
+publishSp = do
+  s <- getS
+  conf <- cConf <$> getCtx
+  m <- getMem
+  let sp = addr (gsFrame s) (gsSlots s)
+  letM [| if ~sp > ~(lowInt (stackBase + stackWords conf)) then error "root stack overflow" else ~(poke m (lowInt spA) sp) |]
+
+-- The frame of a function: its root slots start where the caller's end.
+-- The body of the function is in tail position.
+enterFrame :: G r ()
+enterFrame = do { f <- peekG (lowInt spA); modS (\ s -> s{ gsFrame = f, gsSlots = 0, gsTail = True }) }
+
+-- Not in tail position: the function part of an application, a strict
+-- argument, the arguments of a primitive
+nonTail :: G r a -> G r a
+nonTail g = do
+  t <- gsTail <$> getS
+  modS (\ s -> s{ gsTail = False })
+  a <- g
+  modS (\ s -> s{ gsTail = t })
+  return a
+
+-- Leave the frame with a result
+leaveFrame :: Low Int -> G r (Low Int)
+leaveFrame w = do { f <- gsFrame <$> getS; pokeG (lowInt spA) f; return w }
+
+-- A word of a field or an argument
+leafWord :: Leaf -> G r (Low Int)
+leafWord (LI w) = return w
+leafWord (LP sl) = slotAddr sl
+
+-- Allocate words of the current space: the address (not yet in a root
+-- slot).  When the space is full, the collector runs first: the roots must
+-- be published, and pointers held in slots are read again afterwards.
 allocWords :: Int -> G r (Low Int)
 allocWords n = do
-  p <- peekG (lowInt 0)
-  pokeG (lowInt 0) (addr p n)
+  publishSp
+  c <- getCtx
+  m <- getMem
+  p0 <- peekG (lowInt hpA)
+  lim <- peekG (lowInt limA)
+  p <- callG [| if ~(addr p0 n) > ~lim then
+                  case ~(cGc c m) of
+                    (q, m1) -> if q + ~(lowInt n) > ~(peek [| m1 |] (lowInt limA)) then error "out of memory" else (q, m1)
+                else (~p0, ~m) |]
+  pokeG (lowInt hpA) (addr p n)
   return p
+
+-- The memory at the start of the program: the header and the spaces
+initMemory :: G r ()
+initMemory = do
+  conf <- cConf <$> getCtx
+  let from = stackBase + stackWords conf
+      semi = (memWords conf - from) `quot` 2
+  pokeG (lowInt fromA) (lowInt from)
+  pokeG (lowInt toA) (lowInt (from + semi))
+  pokeG (lowInt semiA) (lowInt semi)
+  pokeG (lowInt hpA) (lowInt from)
+  pokeG (lowInt limA) (lowInt (from + semi))
+  pokeG (lowInt spA) (lowInt stackBase)
+  pokeG (lowInt gcsA) (lowInt 0)
+
+-------------------------------------------------------------------------------
+-- The collector
+
+-- The words of a node of a kind: its tag, then a word per leaf of the shapes
+-- of its fields (a thunk has at least one), padded to two words (the
+-- collector needs them).  Which of the field words are pointers.
+kindFields :: NK -> [Bool]
+kindFields k =
+  case k of
+    NInt -> [False]
+    NBool -> [False]
+    NClo _ shs -> leafFlags shs
+    NPrim _ _ shs -> leafFlags shs
+    NBool1 b sh -> leafFlags [b, sh]
+    NThk _ shs -> let fs = leafFlags shs in if null fs then [False] else fs
+
+kindSize :: NK -> Int
+kindSize k = max 2 (1 + length (kindFields k))
+
+-- The leaves of shapes: is each a pointer?
+leafFlags :: [Sh] -> [Bool]
+leafFlags = concatMap flags
+  where
+    flags sh =
+      case sh of
+        ShDInt -> [False]
+        ShBool -> [False]
+        ShPtr _ -> [True]
+        ShRef _ -> [True]
+        ShClo _ shs -> leafFlags shs
+        ShThk _ shs -> leafFlags shs
+        ShPrim _ _ shs -> leafFlags shs
+        ShBool1 b s -> leafFlags [b, s]
+        _ -> []
+
+-- The size of the node with a tag (an indirection, a negated tag, has the
+-- size of its kind); specialized: a case on the kinds of the program
+sizeOf :: Info -> Low Int -> Low Int
+sizeOf inf t = [| let u = if ~t < 0 then 0 - ~t else ~t in ~(chain [| u |]) |]
+  where
+    chain :: Low Int -> Low Int
+    chain u = foldr (\ k rest -> [| if ~u == ~(lowInt (tagOf inf k)) then ~(lowInt (kindSize k)) else ~rest |]) (lowInt 2) (iKinds inf)
+
+-- Copy what the pointer fields of the node at s point to (with copy), and
+-- point the fields at the copies: the memory afterwards.  An indirection
+-- has one pointer, its value.
+scanFields :: Info -> Low (Mem -> Int -> Res) -> Low Mem -> Low Int -> Low Int -> Low Mem
+scanFields inf cp m s t = [| if ~t < 0 then ~(copyFields m [1]) else ~(chain m) |]
+  where
+    chain :: Low Mem -> Low Mem
+    chain m0 = foldr (\ k rest -> [| if ~t == ~(lowInt (tagOf inf k)) then ~(copyFields m0 (ptrFields k)) else ~rest |]) m0 (iKinds inf)
+    ptrFields :: NK -> [Int]
+    ptrFields k = [ i | (i, True) <- zip [1 ..] (kindFields k) ]
+    copyFields :: Low Mem -> [Int] -> Low Mem
+    copyFields m0 is =
+      case is of
+        [] -> m0
+        i : is' -> [| case ~cp ~m0 ~(peek m0 (addr s i)) of
+                        (q, m1) -> let m2 = ~(poke [| m1 |] (addr s i) [| q |])
+                                   in ~(copyFields [| m2 |] is') |]
+
+-- The collector: a semispace copy (Cheney) of the nodes reachable from the
+-- root stack into the other space, which becomes the current one; the new
+-- heap pointer.  A copied node is left with tag 0 and its new address.
+gcCode :: Info -> Low Mem -> Low Res
+gcCode inf m0 =
+  [| let from = ~(peek m0 (lowInt fromA))
+         to = ~(peek m0 (lowInt toA))
+         semi = ~(peek m0 (lowInt semiA))
+         sp = ~(peek m0 (lowInt spA))
+         gcs = ~(peek m0 (lowInt gcsA))
+         copy m p =
+           let t = ~(peek [| m |] [| p |])
+           in if t == 0 then (~(peek [| m |] [| p + 1 |]), m)
+              else let n = ~(sizeOf inf [| t |])
+                       free = ~(peek [| m |] (lowInt freeA))
+                       m1 = copyWords m p free n
+                   in (free, ~(poke (poke (poke [| m1 |] [| p |] (lowInt 0)) [| p + 1 |] [| free |]) (lowInt freeA) [| free + n |]))
+         copyWords m src dst n =
+           if n == 0 then m else copyWords ~(poke [| m |] [| dst |] (peek [| m |] [| src |])) (src + 1) (dst + 1) (n - 1)
+         roots m i =
+           if i >= sp then m
+           else case copy m ~(peek [| m |] [| i |]) of
+                  (q, m1) -> roots ~(poke [| m1 |] [| i |] [| q |]) (i + 1)
+         scan m =
+           let s = ~(peek [| m |] (lowInt scanA))
+               f = ~(peek [| m |] (lowInt freeA))
+           in if s >= f then m
+              else let t = ~(peek [| m |] [| s |])
+                       m1 = ~(scanFields inf [| copy |] [| m |] [| s |] [| t |])
+                   in scan ~(poke [| m1 |] (lowInt scanA) [| s + ~(sizeOf inf [| t |]) |])
+         m1 = ~(poke (poke m0 (lowInt freeA) [| to |]) (lowInt scanA) [| to |])
+         m2 = scan (roots m1 ~(lowInt stackBase))
+         free = ~(peek [| m2 |] (lowInt freeA))
+     in (free, ~(poke (poke (poke (poke (poke [| m2 |] (lowInt hpA) [| free |]) (lowInt limA) [| to + semi |]) (lowInt fromA) [| to |]) (lowInt toA) [| from |]) (lowInt gcsA) [| gcs + 1 |])) |]
 
 obs :: Obs -> G r ()
 obs o = G $ \ c s k -> oObs (cOps c) o (k () s)
@@ -408,7 +623,7 @@ eval t env =
     UPrim p n -> return (VPrim p n [])
     ULam l -> do { c <- code l; case c of { CLam _ _ fvs -> return (VClo l (map (entry env) fvs)); _ -> error "lam" } }
     UApp f l a -> do
-      fv <- eval f env
+      fv <- nonTail (eval f env)
       e <- delay l a env
       e' <- strictArg fv e
       apply l fv e'
@@ -442,9 +657,11 @@ strictArg fv e =
       c <- code l
       tbl <- cTable <$> getCtx
       case c of
-        CLam x b _ | strictIn tbl b x -> EV <$> force e
+        CLam x b _ | strictIn tbl b x -> EV <$> nonTail (force e)
         _ -> return e
-    (VPrim _ n as, _) | length as + 1 >= n -> EV <$> force e      -- a saturated primitive
+    -- a saturated primitive; but the second argument of seq is its result,
+    -- evaluated in tail position
+    (VPrim p n as, _) | length as + 1 >= n, not (p == "seq" && not (null as)) -> EV <$> nonTail (force e)
     _ -> return e
 
 -- Does a term always use a variable?
@@ -557,32 +774,43 @@ genInts e = do
 -- Call the low function of a recursive application
 callFun :: Key -> [E] -> G r V
 callFun key es = do
-  ws <- concat <$> mapM (leavesE False 0) es
+  ls <- concat <$> mapM (leavesE False 0) es
   inf <- info
   c <- getCtx
   case lookup key (iFunRes inf) of
     Nothing -> stop
     Just (ints, tags) -> do
+      s <- getS
+      ws <- mapM leafWord ls
+      -- a call in tail position: this frame is done, the callee's starts
+      -- where it started (a loop keeps the root stack flat)
+      if gsTail s then pokeG (lowInt spA) (gsFrame s) else publishSp
       m <- getMem
       r <- callG (cFun c key m (if null ws then [lowInt 0] else ws))
-      return (if ints then VDInt r else VPtr r tags)
+      if ints then return (VDInt r) else do { sl <- pushRoot r; return (VPtr sl tags) }
 
 -- Force a pointer: inline eval.  If the node can be a thunk, it is a case on
 -- the tags of the thunk kinds it can be: call the code of the thunk and
 -- update the node with an indirection (tag 1) to the value.
-evalPtr :: Low Int -> Tags -> G r V
-evalPtr p tags = do
+evalPtr :: Slot -> Tags -> G r V
+evalPtr sl tags = do
   let ths = filter isThunkK tags
       whnf = filter (not . isThunkK) tags
-  if null ths then return (VPtr p tags) else do
+  if null ths then return (VPtr sl tags) else do
     inf <- info
     c <- getCtx
+    publishSp
+    p <- slotAddr sl
     m <- getMem
+    f <- gsFrame <$> getS
     let res = foldr unionS whnf [ fromMaybe [] (lookup k (iThkRes inf)) | k <- ths ]
-        -- the code of the thunk, then the node becomes an indirection to the value
+        -- the code of the thunk, then the node (read again from its slot: the
+        -- collector may have moved it) becomes an indirection to the value:
+        -- the negated tag, and the value
         alt :: NK -> Low Res
         alt k = [| case ~(cThk c k m p) of
-                     (v, m1) -> (v, ~(poke (poke [| m1 |] p (lowInt 1)) (addr p 1) [| v |])) |]
+                     (v, m1) -> let q = ~(peek [| m1 |] (addr f sl))
+                                in (v, ~(poke (poke [| m1 |] [| q |] (lowInt (negate (tagOf inf k)))) [| q + 1 |] [| v |])) |]
         chain :: Low Int -> [NK] -> Low Res
         chain t ks =
           case ks of
@@ -590,40 +818,43 @@ evalPtr p tags = do
             [] -> [| (~p, ~m) |]
             k : ks' -> [| if ~t == ~(lowInt (tagOf inf k)) then ~(alt k) else ~(chain t ks') |]
     t <- peekG p
-    r <- callG [| if ~t == 1 then (~(peek m (addr p 1)), ~m) else ~(chain t ths) |]
-    return (VPtr r res)
+    r <- callG [| if ~t < 0 then (~(peek m (addr p 1)), ~m) else ~(chain t ths) |]
+    sl' <- pushRoot r
+    return (VPtr sl' res)
 
 -- Apply a pointer: inline apply, a case on the tags of the closure kinds the
 -- node can be; each alternative applies a known closure
-applyPtr :: Int -> Low Int -> Tags -> E -> G r V
+applyPtr :: Int -> Slot -> Tags -> E -> G r V
 applyPtr site p tags e =
   case filter (/= NInt) tags of
     [] -> stop
     [k] -> do { v <- nodeValue k p; apply site v e }
     ks -> do
-      t <- peekG p
+      a <- slotAddr p
+      t <- peekG a
       ns <- mapM tagNum ks
       joinV site [ ([| ~t == ~(lowInt n) |], do { v <- nodeValue k p; apply site v e }) | (k, n) <- init (zip ks ns) ]
                  (do { v <- nodeValue (last ks) p; apply site v e })
 
 -- The value of a node in weak head normal form
-nodeValue :: NK -> Low Int -> G r V
+nodeValue :: NK -> Slot -> G r V
 nodeValue k p =
   case k of
-    NInt -> VDInt <$> peekG (addr p 1)
-    NBool -> do { w <- peekG (addr p 1); return (VBool (BD [| ~w /= 0 |])) }
+    NInt -> do { a <- slotAddr p; VDInt <$> peekG (addr a 1) }
+    NBool -> do { a <- slotAddr p; w <- peekG (addr a 1); return (VBool (BD [| ~w /= 0 |])) }
     NClo l shs -> VClo l <$> fields k p shs
     NPrim q n shs -> VPrim q n <$> fields k p shs
     NBool1 b s -> do { es <- fields k p [b, s]; case es of { [EV (VBool bv), e] -> return (VBool1 bv e); _ -> error "nodeValue" } }
     NThk _ _ -> error "Staged.Low.Lazy: a thunk where a value was expected"
 
 -- The entries of the fields of a node (the node kinds of pointers come from the analysis)
-fields :: NK -> Low Int -> [Sh] -> G r [E]
+fields :: NK -> Slot -> [Sh] -> G r [E]
 fields k p shs = do
   inf <- info
   let n = sum (map leafCount shs)
       shs' = fst (fillTags (\ i -> fromMaybe [] (lookup (k, i) (iFields inf))) 1 shs)
-  ws <- mapM (\ i -> peekG (addr p i)) [1 .. n]
+  a <- slotAddr p
+  ws <- mapM (\ i -> peekG (addr a i)) [1 .. n]
   fst <$> rebuildAll shs' ws
 
 -- A join of conditional code: the alternatives (with their conditions) and the
@@ -635,7 +866,7 @@ joinV site alts dflt = G $ \ c s k ->
       known = lookup site (iJoins (cInfo c))
       cont x m = case known of
                    Just (True, _) -> k (VDInt x) s{ gsMem = m }
-                   Just (False, tags) -> k (VPtr x tags) s{ gsMem = m }
+                   Just (False, tags) -> runG (pushRoot x) c s{ gsMem = m } (\ sl s' -> k (VPtr sl tags) s')
                    Nothing -> oStop ops
       -- a branch: its value and memory, at the join (in the analysis: observed)
       branch g j = runG (do { v <- g; w <- atJoin v; m <- getMem; return (w, m) }) c s (\ (w, m) _ -> j w m)
@@ -643,7 +874,7 @@ joinV site alts dflt = G $ \ c s k ->
         | oAna ops = do { tags <- observed v; obs (OJoin site (intish v) tags); return (lowInt 0) }
         | otherwise = case known of
                         Just (True, _) -> intOf v >>= lowI
-                        _ -> fst <$> liftPtr v
+                        _ -> do { (sl, _) <- liftPtr v; slotAddr sl }
       chain as j =
         case as of
           [] -> branch dflt j
@@ -673,7 +904,7 @@ intOf v =
   case v of
     VInt n -> return (IS n)
     VDInt x -> return (ID x)
-    VPtr p tags | all (== NInt) tags -> ID <$> peekG (addr p 1)
+    VPtr p tags | all (== NInt) tags -> do { a <- slotAddr p; ID <$> peekG (addr a 1) }
     _ -> error "Staged.Low.Lazy: not an integer"
 
 lowI :: IntV -> G r (Low Int)
@@ -684,7 +915,12 @@ lowI (ID x) = return x
 prim :: String -> [E] -> G r V
 prim p args =
   case args of
-    [a, b] | p == "seq" -> do { _ <- force a; force b }
+    [a, b] | p == "seq" -> do { _ <- nonTail (force a); force b }     -- b is in tail position
+    _ -> nonTail (primOp p args)
+
+primOp :: String -> [E] -> G r V
+primOp p args =
+  case args of
     [a, b] -> do
       x <- force a >>= intOf
       y <- force b >>= intOf
@@ -756,7 +992,7 @@ shapeE nodeM d e = do
   s <- getS
   return (shapeP (gsMemo s) (gsStored s) nodeM d e)
 
-shapeP :: [(Int, V)] -> [(Int, (Low Int, Tags))] -> Bool -> Int -> E -> Sh
+shapeP :: [(Int, V)] -> [(Int, (Slot, Tags))] -> Bool -> Int -> E -> Sh
 shapeP m st nodeM d e =
   case e of
     EV v -> shV v
@@ -864,37 +1100,37 @@ fillTags tg i shs =
         _ -> (sh, i)
 
 -- The run time words of an entry (as in its shape), storing what has to be a node
-leavesE :: Bool -> Int -> E -> G r [Low Int]
+leavesE :: Bool -> Int -> E -> G r [Leaf]
 leavesE nodeM d e = do
   s <- getS
   case e of
     EV v -> leavesV v
     EThk i l es
       | Just v <- lookup i (gsMemo s) -> memoLeaves i v
-      | Just (p, _) <- lookup i (gsStored s) -> return [p]
+      | Just (p, _) <- lookup i (gsStored s) -> return [LP p]
       | otherwise -> do
           shs <- mapM (shapeE nodeM (d + 1)) es
-          if d >= depth || any hasLeaves shs then do { (p, _) <- storeCell i (NThk l) es; return [p] }
+          if d >= depth || any hasLeaves shs then do { (p, _) <- storeCell i (NThk l) es; return [LP p] }
           else concat <$> mapM (leavesE nodeM (d + 1)) es
     EGlob _ -> return []
     ERef i p _ | Just v <- lookup i (gsMemo s) -> memoLeaves i v
-               | otherwise -> return [p]
+               | otherwise -> return [LP p]
   where
     memoLeaves i v = case nodeOf v of
-                       Just (mk, es) -> do { (p, _) <- storeCell i mk es; return [p] }
+                       Just (mk, es) -> do { (p, _) <- storeCell i mk es; return [LP p] }
                        Nothing -> leavesV v
     sub es = concat <$> mapM (leavesE nodeM (d + 1)) es
     leavesV v =
       case v of
-        VInt n -> return (if nodeM then [lowInt n] else [])
-        VDInt x -> return [x]
+        VInt n -> return (if nodeM then [LI (lowInt n)] else [])
+        VDInt x -> return [LI x]
         VBool (BS _) -> return []
-        VBool (BD b) -> return [[| if ~b then 1 else 0 |]]
-        VPtr p _ -> return [p]
+        VBool (BD b) -> return [LI [| if ~b then 1 else 0 |]]
+        VPtr p _ -> return [LP p]
         VClo _ es | d < depth -> sub es
         VPrim _ _ es | d < depth -> sub es
         VBool1 b e' | d < depth -> (++) <$> leavesV (VBool b) <*> leavesE nodeM (d + 1) e'
-        _ -> do { (p, _) <- liftPtr v; return [p] }
+        _ -> do { (p, _) <- liftPtr v; return [LP p] }
 
 -- A closure, primitive or Bool applied to an argument as a node: the node
 -- kind (of the shapes of the entries) and the entries
@@ -923,8 +1159,8 @@ rebuild sh ws =
     (ShDInt, w : ws') -> return (EV (VDInt w), ws')
     (ShBS b, _) -> return (EV (VBool (BS b)), ws)
     (ShBool, w : ws') -> return (EV (VBool (BD [| ~w /= 0 |])), ws')
-    (ShPtr tags, w : ws') -> return (EV (VPtr w tags), ws')
-    (ShRef tags, w : ws') -> do { i <- freshId; return (ERef i w tags, ws') }
+    (ShPtr tags, w : ws') -> do { sl <- pushRoot w; return (EV (VPtr sl tags), ws') }
+    (ShRef tags, w : ws') -> do { i <- freshId; sl <- pushRoot w; return (ERef i sl tags, ws') }
     (ShClo l shs, _) -> do { (es, ws') <- rebuildAll shs ws; return (EV (VClo l es), ws') }
     (ShPrim p n shs, _) -> do { (es, ws') <- rebuildAll shs ws; return (EV (VPrim p n es), ws') }
     (ShThk l shs, _) -> do { (es, ws') <- rebuildAll shs ws; i <- freshId; return (EThk i l es, ws') }
@@ -937,33 +1173,36 @@ rebuild sh ws =
     (ShGlob g, _) -> return (EGlob g, ws)
     _ -> error "Staged.Low.Lazy: rebuild"
 
--- Store a node: its tag and fields
-storeNode :: NK -> [Low Int] -> G r (Low Int, Tags)
-storeNode k ws = do
+-- Store a node: its tag and fields (at least two words: the collector
+-- needs them); the root slot that holds it
+storeNode :: NK -> [Leaf] -> G r (Slot, Tags)
+storeNode k ls = do
   obs (OKind k)
   n <- tagNum k
-  p <- allocWords (1 + length ws)
+  p <- allocWords (max 2 (1 + length ls))
+  sl <- pushRoot p
   pokeG p (lowInt n)
+  ws <- mapM leafWord ls
   mapM_ (\ (i, w) -> pokeG (addr p i) w) (zip [1 ..] ws)
-  return (p, [k])
+  return (sl, [k])
 
 -- The node of a closure, a primitive applied to arguments, or a Bool applied
 -- to an argument: the shapes of the entries are the node kind, their run time
 -- words the fields
-storeEntries :: ([Sh] -> NK) -> [E] -> G r (Low Int, Tags)
+storeEntries :: ([Sh] -> NK) -> [E] -> G r (Slot, Tags)
 storeEntries mk es = do
   shs <- mapM (shapeE True 1) es
-  ws <- concat <$> mapM (leavesE True 1) es
+  ls <- concat <$> mapM (leavesE True 1) es
   let k = mk (map strip shs)
   mapM_ (\ (i, ts) -> obs (OField k i ts)) (leafTags 1 shs)
-  storeNode k ws
+  storeNode k ls
 
 -- A thunk (unevaluated, or evaluated to a closure) as a node; later uses on
 -- this path share it.  The node is allocated first and its fields written
 -- afterwards, since a field can refer to the node itself (a cycle through
 -- the value of the thunk).  A thunk node has at least two words (an update
 -- overwrites it with an indirection).
-storeCell :: Int -> ([Sh] -> NK) -> [E] -> G r (Low Int, Tags)
+storeCell :: Int -> ([Sh] -> NK) -> [E] -> G r (Slot, Tags)
 storeCell i mk es = do
   s <- getS
   case lookup i (gsStored s) of
@@ -974,23 +1213,26 @@ storeCell i mk es = do
           n = max (if isThunkK k then 1 else 0) (sum (map leafCount shs))
       obs (OKind k)
       tag <- tagNum k
-      p <- allocWords (1 + n)
+      p <- allocWords (max 2 (1 + n))
+      sl <- pushRoot p
       pokeG p (lowInt tag)
-      modS (\ s' -> s'{ gsStored = (i, (p, [k])) : gsStored s' })
-      ws <- concat <$> mapM (leavesE True 1) es
+      modS (\ s' -> s'{ gsStored = (i, (sl, [k])) : gsStored s' })
+      ls <- concat <$> mapM (leavesE True 1) es
       mapM_ (\ (j, ts) -> obs (OField k j ts)) (leafTags 1 shs)
-      mapM_ (\ (j, w) -> pokeG (addr p j) w) (zip [1 ..] ws)
-      return (p, [k])
+      ws <- mapM leafWord ls
+      p' <- slotAddr sl
+      mapM_ (\ (j, w) -> pokeG (addr p' j) w) (zip [1 ..] ws)
+      return (sl, [k])
 
 -- A value as a pointer to a node in weak head normal form
-liftPtr :: V -> G r (Low Int, Tags)
+liftPtr :: V -> G r (Slot, Tags)
 liftPtr v =
   case v of
     VPtr p tags -> return (p, tags)
-    VInt n -> storeNode NInt [lowInt n]
-    VDInt x -> storeNode NInt [x]
-    VBool (BS b) -> storeNode NBool [lowInt (if b then 1 else 0)]
-    VBool (BD b) -> storeNode NBool [[| if ~b then 1 else 0 |]]
+    VInt n -> storeNode NInt [LI (lowInt n)]
+    VDInt x -> storeNode NInt [LI x]
+    VBool (BS b) -> storeNode NBool [LI (lowInt (if b then 1 else 0))]
+    VBool (BD b) -> storeNode NBool [LI [| if ~b then 1 else 0 |]]
     VClo l es -> storeEntries (NClo l) es
     VPrim p n es -> storeEntries (NPrim p n) es
     VBool1 b e -> storeEntries (\ shs -> case shs of { [bs, s] -> NBool1 bs s; _ -> error "liftPtr" }) [EV (VBool b), e]
@@ -1006,37 +1248,43 @@ resultInt v = intOf v >>= lowI
 -- applications, and the code of the thunk kinds
 mainCode :: Maybe (Low Int) -> G r (Low Int)
 mainCode arg = do
-  pokeG (lowInt 0) (lowInt 1)          -- the heap starts after the heap pointer
+  initMemory
+  enterFrame
   v <- force (EGlob "main")
   r <- case arg of
          Nothing -> return v
          Just n -> apply (-1) v (EV (VDInt n))
-  resultInt r
+  w <- resultInt r
+  leaveFrame w
 
 funCode :: Key -> [Low Int] -> G r (Low Int)
 funCode key@(l, shs) ps = do
-  (es, _) <- rebuildAll shs ps
   c <- code l
   inf <- info
   ana <- (oAna . cOps) <$> getCtx
   case c of
     CLam x b fvs -> do
+      enterFrame
+      (es, _) <- rebuildAll shs ps           -- the pointers among the arguments go into root slots
       v <- withAnc key (eval b ((x, last es) : zip fvs (init es)))
       if ana then do
         tags <- observed v
         obs (OFunRes key (intish v) tags)
         return (lowInt 0)
-      else
-        case lookup key (iFunRes inf) of
-          Just (True, _) -> resultInt v
-          _ -> fst <$> liftPtr v
+      else do
+        w <- case lookup key (iFunRes inf) of
+               Just (True, _) -> resultInt v
+               _ -> do { (sl, _) <- liftPtr v; slotAddr sl }
+        leaveFrame w
     _ -> error "funCode"
 
 thkCode :: NK -> Low Int -> G r (Low Int)
 thkCode k p =
   case k of
     NThk l shs -> do
-      es <- fields k p shs
+      enterFrame
+      sl <- pushRoot p
+      es <- fields k sl shs
       c <- code l
       ana <- (oAna . cOps) <$> getCtx
       case c of
@@ -1044,7 +1292,8 @@ thkCode k p =
           v <- eval t (zip fvs es)
           (r, tags) <- liftPtr v
           whenG ana $ obs (OThkRes k tags)
-          return r
+          w <- slotAddr r
+          leaveFrame w
         _ -> error "thkCode"
     _ -> error "thkCode"
 
@@ -1053,20 +1302,20 @@ whenG b g = if b then g else return ()
 
 -- Run code generation with a memory: the value and the memory afterwards
 runCode :: Ctx r -> Low Mem -> G r (Low Int) -> r
-runCode c m g = runG g c (GS 0 [] [] [] [] m) (\ w s -> oRet (cOps c) w (gsMem s))
+runCode c m g = runG g c (GS 0 [] [] [] [] m (lowInt 0) 0 False) (\ w s -> oRet (cOps c) w (gsMem s))
 
 -- The analysis of a program: the interpreter in the analysis mode, on all
 -- the roots, until it finds nothing new
 analyse :: Prog -> Bool -> Info
 analyse prog hasArg =
   let (tbl, globs) = labelProg prog
-  in  analyseL tbl globs hasArg
+  in  analyseL defaultConfig tbl globs hasArg
 
-analyseL :: Table -> [(String, T)] -> Bool -> Info
-analyseL tbl globs hasArg = go emptyInfo
+analyseL :: Config -> Table -> [(String, T)] -> Bool -> Info
+analyseL conf tbl globs hasArg = go emptyInfo
   where
     go inf =
-      let c = Ctx anaOps inf tbl globs (\ _ _ _ -> resDummy) (\ _ _ _ -> resDummy)
+      let c = Ctx anaOps inf tbl globs conf (\ _ _ _ -> resDummy) (\ _ _ _ -> resDummy) (\ _ -> resDummy)
           os = runCode c memDummy (mainCode (if hasArg then Just (lowInt 0) else Nothing)) ++
                concat [ runCode c memDummy (funCode k (dummies (sum (map leafCount (snd k))))) | k <- iRecs inf ] ++
                concat [ runCode c memDummy (thkCode k (lowInt 0)) | k <- iKinds inf, isThunkK k ]
@@ -1076,24 +1325,28 @@ analyseL tbl globs hasArg = go emptyInfo
 
 -- Compile a program: all the low functions in one recursive group, around
 -- the program; the value of the program and the memory afterwards
-compileL :: Prog -> Maybe (Low Int) -> Low Mem -> Low Res
-compileL prog arg mem =
+compileL :: Config -> Prog -> Maybe (Low Int) -> Low Mem -> Low Res
+compileL conf prog arg mem =
   let (tbl, globs) = labelProg prog
-      inf = analyseL tbl globs (case arg of { Nothing -> False; Just _ -> True })
+      inf = analyseL conf tbl globs (case arg of { Nothing -> False; Just _ -> True })
       funs = iRecs inf
       thks = filter isThunkK (iKinds inf)
       arity k = max 1 (sum (map leafCount (snd k)))
       decls = [ ("f" ++ show i, TFun (tMem : replicate (arity k) TInt) tRes) | (i, k) <- zip [0 :: Int ..] funs ] ++
-              [ ("t" ++ show i, TFun [tMem, TInt] tRes) | (i, _) <- zip [0 :: Int ..] thks ]
+              [ ("t" ++ show i, TFun [tMem, TInt] tRes) | (i, _) <- zip [0 :: Int ..] thks ] ++
+              [ ("gc", TFun [tMem] tRes) ]
       call f m ws = toLow (HApp f (fromLow m : map fromLow ws))
       group vs =
-        let (fvs, tvs) = splitAt (length funs) vs
-            c = Ctx genOps inf tbl globs
+        let (fvs, rest) = splitAt (length funs) vs
+            (tvs, gcv) = splitAt (length thks) rest
+            c = Ctx genOps inf tbl globs conf
                     (\ k m ws -> call (fromMaybe (error "fun") (lookup k (zip funs fvs))) m ws)
                     (\ k m p -> call (fromMaybe (error "thunk") (lookup k (zip thks tvs))) m [p])
+                    (\ m -> call (head gcv) m [])
             fun k = lams (arity k) (\ m ps -> runCode c m (funCode k (take (sum (map leafCount (snd k))) ps)))
             thk k = lams 1 (\ m ps -> runCode c m (thkCode k (head ps)))
-        in  (map (fromLow . fun) funs ++ map (fromLow . thk) thks, fromLow (runCode c mem (mainCode arg)))
+            collector = lams 0 (\ m _ -> gcCode inf m)
+        in  (map (fromLow . fun) funs ++ map (fromLow . thk) thks ++ [fromLow collector], fromLow (runCode c mem (mainCode arg)))
   in  toLow (HLetRec decls group)
 
 -- A low function of the memory and n integers
@@ -1104,12 +1357,12 @@ lams n f = toLow (HLam "m" tMem (\ m -> go n [] (toLow m)))
     go i ps m = HLam "p" TInt (\ x -> go (i - 1) (toLow x : ps) m)
 
 -- A program whose value is an integer
-compileInt :: Prog -> Low (Mem -> Int)
-compileInt prog = [| \ m -> case ~(compileL prog Nothing [| m |]) of (r, _) -> r |]
+compileInt :: Config -> Prog -> Low (Mem -> Int)
+compileInt conf prog = [| \ m -> case ~(compileL conf prog Nothing [| m |]) of (r, _) -> r |]
 
 -- A program whose value is a function of an integer
-compileFun :: Prog -> Low (Mem -> Int -> Int)
-compileFun prog = [| \ m n -> case ~(compileL prog (Just [| n |]) [| m |]) of (r, _) -> r |]
+compileFun :: Config -> Prog -> Low (Mem -> Int -> Int)
+compileFun conf prog = [| \ m n -> case ~(compileL conf prog (Just [| n |]) [| m |]) of (r, _) -> r |]
 
 -------------------------------------------------------------------------------
 -- Showing the analysis
