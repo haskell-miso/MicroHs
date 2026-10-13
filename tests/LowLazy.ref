@@ -1,0 +1,2192 @@
+==== factorial
+node kinds (tag: kind):
+fields (kind.field: kinds):
+results of thunk code (kind: kinds):
+joins (site: kinds):
+  16: Int
+recursive applications (lambda shape: result):
+  lambda17(thunk4(lambda5(lambda18())), int): Int
+---- low code
+-- type: Mem -> Int -> Int
+-- data Mem = Mem
+-- data (,) #0 #1 = (,) #0 #1
+-- data Bool = False | True
+\ (m :: Mem) (n :: Int) ->
+  let x1_2 :: (Int, Mem) = letrec
+        f0 :: Mem -> Int -> (Int, Mem) = \ (m_1 :: Mem) (p :: Int) ->
+            let b :: Bool = p == 0
+            in case b of
+                 False -> let x :: Int = p - 1
+                   in let x1 :: (Int, Mem) = f0 m_1 x
+                      in case x1 of
+                           (x3, x4) -> let x_1 :: Int = p * x3
+                             in (x_1, x4)
+                 True -> (1, m_1)
+      in let m_3 :: Mem = poke m[0] 1
+         in let b_1 :: Bool = n == 0
+            in case b_1 of
+                 False -> let x_2 :: Int = n - 1
+                   in let x1_1 :: (Int, Mem) = f0 m_3 x_2
+                      in case x1_1 of
+                           (x3_1, x4_1) -> let x_3 :: Int = n * x3_1
+                             in (x_3, x4_1)
+                 True -> (1, m_3)
+  in case x1_2 of
+       (x3_2, x4_2) -> x3_2
+---- C
+#include <stdint.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <math.h>
+
+/* the memory of the program (Staged.Low.Mem) */
+#ifndef MHS_MEM_WORDS
+#define MHS_MEM_WORDS (1 << 20)
+#endif
+static int64_t mhs_mem[MHS_MEM_WORDS];
+
+/* Staged.Low.Mem: Mem=0 */
+struct c { int tag; union { struct { void* f0; void* f1; } c; } u; };
+/* Data.Bool_Type.Bool: False=0, True=1 */
+
+static int64_t f0(int m_1, int64_t p);
+static int64_t f0(int m_1, int64_t p) {
+  int b = (p == 0);
+  int64_t r_0;
+  switch (b) {
+  case 0: {
+  int64_t x = (p - 1);
+  int64_t x1 = f0(m_1, x);
+  int64_t r_1;
+  int64_t x3 = x1;
+  int x4 = 0;
+  int64_t x_1 = (p * x3);
+  r_1 = x_1;
+  r_0 = r_1; break; }
+  case 1: {
+  r_0 = 1; break; }
+  default: abort();
+  }
+  return r_0;
+}
+
+int64_t factorial(int m, int64_t n) {
+  mhs_mem[0] = 1;
+  int m_3 = 0;
+  int b_1 = (n == 0);
+  int64_t r_2;
+  switch (b_1) {
+  case 0: {
+  int64_t x_2 = (n - 1);
+  int64_t x1_1 = f0(m_3, x_2);
+  int64_t r_3;
+  int64_t x3_1 = x1_1;
+  int x4_1 = 0;
+  int64_t x_3 = (n * x3_1);
+  r_3 = x_3;
+  r_2 = r_3; break; }
+  case 1: {
+  r_2 = 1; break; }
+  default: abort();
+  }
+  int64_t x1_2 = r_2;
+  int64_t r_4;
+  int64_t x3_2 = x1_2;
+  int x4_2 = 0;
+  r_4 = x3_2;
+  return r_4;
+}
+---- reference interpreter
+[(0,1),(1,1),(5,120),(10,3628800),(20,2432902008176640000)]
+==== fibs
+node kinds (tag: kind):
+  2: Int
+  3: P lambda8(ref, ref)
+  4: P lambda9(ref, ref)
+  5: P lambda105(int, ref)
+  6: P lambda106(int, ref)
+  7: F thunk14(+/2(), int, int)
+  8: F thunk14(+/2(), int, ref)
+  9: F thunk14(+/2(), ref, ref)
+  10: F thunk18(+/2(), ref, ref)
+  11: F thunk41(int)
+fields (kind.field: kinds):
+  3.1: {7, 8, 9}
+  3.2: {10}
+  4.1: {7, 8, 9}
+  4.2: {10}
+  5.2: {4}
+  6.2: {4}
+  8.2: {7, 8, 9}
+  9.1: {7, 8, 9}
+  9.2: {7, 8, 9}
+  10.1: {4, 6, 10}
+  10.2: {4, 10}
+results of thunk code (kind: kinds):
+  7: {2}
+  8: {2}
+  9: {2}
+  10: {4}
+  11: {2}
+joins (site: kinds):
+  2: {3, 5}
+  24: {4}
+  43: Int
+recursive applications (lambda shape: result):
+  lambda47(ref, ref): Int
+---- low code
+-- type: Mem -> Int -> Int
+-- data Mem = Mem
+-- data (,) #0 #1 = (,) #0 #1
+-- data Bool = False | True
+\ (m :: Mem) (n :: Int) ->
+  let x1_34 :: (Int, Mem) = letrec
+        f0 :: Mem -> Int -> Int -> (Int, Mem) = \ (m_1 :: Mem) (p :: Int) (p_1 :: Int) ->
+            let x :: Int = peek m_1[p]
+            in let x1_1 :: (Int, Mem) = case x == 1 of
+                     False -> let x1 :: (Int, Mem) = t3 m_1 p
+                       in case x1 of
+                            (x3, x4) -> (x3, poke (poke x4[p] 1)[p + 1] x3)
+                     True -> (peek m_1[p + 1], m_1)
+               in case x1_1 of
+                    (x3_1, x4_1) -> let x_1 :: Int = peek x4_1[x3_1 + 1]
+                      in let x_2 :: Int = peek x4_1[x3_1 + 2]
+                         in let x_3 :: Int = peek x4_1[p_1]
+                            in let x1_3 :: (Int, Mem) = case x_3 == 1 of
+                                     False -> let x1_2 :: (Int, Mem) = t4 x4_1 p_1
+                                       in case x1_2 of
+                                            (x3_2, x4_2) -> (x3_2, poke (poke x4_2[p_1] 1)[p_1 + 1] x3_2)
+                                     True -> (peek x4_1[p_1 + 1], x4_1)
+                               in case x1_3 of
+                                    (x3_3, x4_3) -> let x_4 :: Int = peek x4_3[x3_3 + 1]
+                                      in let b :: Bool = x_4 == 0
+                                         in case b of
+                                              False -> let x_5 :: Int = peek x4_3[x_2]
+                                                in let x1_5 :: (Int, Mem) = case x_5 == 1 of
+                                                         False -> let x1_4 :: (Int, Mem) = t3 x4_3 x_2
+                                                           in case x1_4 of
+                                                                (x3_4, x4_4) -> (x3_4, poke (poke x4_4[x_2] 1)[x_2 + 1] x3_4)
+                                                         True -> (peek x4_3[x_2 + 1], x4_3)
+                                                   in case x1_5 of
+                                                        (x3_5, x4_5) -> let x_6 :: Int = peek x4_5[x3_5 + 1]
+                                                          in let x_7 :: Int = peek x4_5[x3_5 + 2]
+                                                             in let x_8 :: Int = peek x4_5[x3_3 + 1]
+                                                                in let x_9 :: Int = x_8 - 1
+                                                                   in let b_1 :: Bool = x_9 == 0
+                                                                      in case b_1 of
+                                                                           False -> let x_10 :: Int = peek x4_5[0]
+                                                                             in let m_4 :: Mem = poke x4_5[0] (x_10 + 2)
+                                                                                in let m_5 :: Mem = poke m_4[x_10] 11
+                                                                                   in let m_6 :: Mem = poke m_5[x_10 + 1] x_9
+                                                                                      in let x1_6 :: (Int, Mem) = f0 m_6 x_7 x_10
+                                                                                         in x1_6
+                                                                           True -> let x_11 :: Int = peek x4_5[x_6]
+                                                                             in let x1_10 :: (Int, Mem) = case x_11 == 1 of
+                                                                                      False -> case x_11 == 7 of
+                                                                                          False -> case x_11 == 8 of
+                                                                                              False -> let x1_7 :: (Int, Mem) = t2 x4_5 x_6
+                                                                                                in case x1_7 of
+                                                                                                     (x3_7, x4_7) -> (x3_7, poke (poke x4_7[x_6] 1)[x_6 + 1] x3_7)
+                                                                                              True -> let x1_8 :: (Int, Mem) = t1 x4_5 x_6
+                                                                                                in case x1_8 of
+                                                                                                     (x3_8, x4_8) -> (x3_8, poke (poke x4_8[x_6] 1)[x_6 + 1] x3_8)
+                                                                                          True -> let x1_9 :: (Int, Mem) = t0 x4_5 x_6
+                                                                                            in case x1_9 of
+                                                                                                 (x3_9, x4_9) -> (x3_9, poke (poke x4_9[x_6] 1)[x_6 + 1] x3_9)
+                                                                                      True -> (peek x4_5[x_6 + 1], x4_5)
+                                                                                in case x1_10 of
+                                                                                     (x3_10, x4_10) -> let x_12 :: Int = peek x4_10[x3_10 + 1]
+                                                                                       in (x_12, x4_10)
+                                              True -> let x_13 :: Int = peek x4_3[x_1]
+                                                in let x1_14 :: (Int, Mem) = case x_13 == 1 of
+                                                         False -> case x_13 == 7 of
+                                                             False -> case x_13 == 8 of
+                                                                 False -> let x1_11 :: (Int, Mem) = t2 x4_3 x_1
+                                                                   in case x1_11 of
+                                                                        (x3_11, x4_11) -> (x3_11, poke (poke x4_11[x_1] 1)[x_1 + 1] x3_11)
+                                                                 True -> let x1_12 :: (Int, Mem) = t1 x4_3 x_1
+                                                                   in case x1_12 of
+                                                                        (x3_12, x4_12) -> (x3_12, poke (poke x4_12[x_1] 1)[x_1 + 1] x3_12)
+                                                             True -> let x1_13 :: (Int, Mem) = t0 x4_3 x_1
+                                                               in case x1_13 of
+                                                                    (x3_13, x4_13) -> (x3_13, poke (poke x4_13[x_1] 1)[x_1 + 1] x3_13)
+                                                         True -> (peek x4_3[x_1 + 1], x4_3)
+                                                   in case x1_14 of
+                                                        (x3_14, x4_14) -> let x_14 :: Int = peek x4_14[x3_14 + 1]
+                                                          in (x_14, x4_14)
+        t0 :: Mem -> Int -> (Int, Mem) = \ (m_7 :: Mem) (p_2 :: Int) ->
+            let x_15 :: Int = peek m_7[p_2 + 1]
+            in let x_16 :: Int = peek m_7[p_2 + 2]
+               in let x_17 :: Int = x_15 + x_16
+                  in let x_18 :: Int = peek m_7[0]
+                     in let m_8 :: Mem = poke m_7[0] (x_18 + 2)
+                        in let m_9 :: Mem = poke m_8[x_18] 2
+                           in let m_10 :: Mem = poke m_9[x_18 + 1] x_17
+                              in (x_18, m_10)
+        t1 :: Mem -> Int -> (Int, Mem) = \ (m_11 :: Mem) (p_3 :: Int) ->
+            let x_19 :: Int = peek m_11[p_3 + 1]
+            in let x_20 :: Int = peek m_11[p_3 + 2]
+               in let x_21 :: Int = peek m_11[x_20]
+                  in let x1_18 :: (Int, Mem) = case x_21 == 1 of
+                           False -> case x_21 == 7 of
+                               False -> case x_21 == 8 of
+                                   False -> let x1_15 :: (Int, Mem) = t2 m_11 x_20
+                                     in case x1_15 of
+                                          (x3_15, x4_15) -> (x3_15, poke (poke x4_15[x_20] 1)[x_20 + 1] x3_15)
+                                   True -> let x1_16 :: (Int, Mem) = t1 m_11 x_20
+                                     in case x1_16 of
+                                          (x3_16, x4_16) -> (x3_16, poke (poke x4_16[x_20] 1)[x_20 + 1] x3_16)
+                               True -> let x1_17 :: (Int, Mem) = t0 m_11 x_20
+                                 in case x1_17 of
+                                      (x3_17, x4_17) -> (x3_17, poke (poke x4_17[x_20] 1)[x_20 + 1] x3_17)
+                           True -> (peek m_11[x_20 + 1], m_11)
+                     in case x1_18 of
+                          (x3_18, x4_18) -> let x_22 :: Int = peek x4_18[x3_18 + 1]
+                            in let x_23 :: Int = x_19 + x_22
+                               in let x_24 :: Int = peek x4_18[0]
+                                  in let m_12 :: Mem = poke x4_18[0] (x_24 + 2)
+                                     in let m_13 :: Mem = poke m_12[x_24] 2
+                                        in let m_14 :: Mem = poke m_13[x_24 + 1] x_23
+                                           in (x_24, m_14)
+        t2 :: Mem -> Int -> (Int, Mem) = \ (m_15 :: Mem) (p_4 :: Int) ->
+            let x_25 :: Int = peek m_15[p_4 + 1]
+            in let x_26 :: Int = peek m_15[p_4 + 2]
+               in let x_27 :: Int = peek m_15[x_26]
+                  in let x1_22 :: (Int, Mem) = case x_27 == 1 of
+                           False -> case x_27 == 7 of
+                               False -> case x_27 == 8 of
+                                   False -> let x1_19 :: (Int, Mem) = t2 m_15 x_26
+                                     in case x1_19 of
+                                          (x3_19, x4_19) -> (x3_19, poke (poke x4_19[x_26] 1)[x_26 + 1] x3_19)
+                                   True -> let x1_20 :: (Int, Mem) = t1 m_15 x_26
+                                     in case x1_20 of
+                                          (x3_20, x4_20) -> (x3_20, poke (poke x4_20[x_26] 1)[x_26 + 1] x3_20)
+                               True -> let x1_21 :: (Int, Mem) = t0 m_15 x_26
+                                 in case x1_21 of
+                                      (x3_21, x4_21) -> (x3_21, poke (poke x4_21[x_26] 1)[x_26 + 1] x3_21)
+                           True -> (peek m_15[x_26 + 1], m_15)
+                     in case x1_22 of
+                          (x3_22, x4_22) -> let x_28 :: Int = peek x4_22[x_25]
+                            in let x1_26 :: (Int, Mem) = case x_28 == 1 of
+                                     False -> case x_28 == 7 of
+                                         False -> case x_28 == 8 of
+                                             False -> let x1_23 :: (Int, Mem) = t2 x4_22 x_25
+                                               in case x1_23 of
+                                                    (x3_23, x4_23) -> (x3_23, poke (poke x4_23[x_25] 1)[x_25 + 1] x3_23)
+                                             True -> let x1_24 :: (Int, Mem) = t1 x4_22 x_25
+                                               in case x1_24 of
+                                                    (x3_24, x4_24) -> (x3_24, poke (poke x4_24[x_25] 1)[x_25 + 1] x3_24)
+                                         True -> let x1_25 :: (Int, Mem) = t0 x4_22 x_25
+                                           in case x1_25 of
+                                                (x3_25, x4_25) -> (x3_25, poke (poke x4_25[x_25] 1)[x_25 + 1] x3_25)
+                                     True -> (peek x4_22[x_25 + 1], x4_22)
+                               in case x1_26 of
+                                    (x3_26, x4_26) -> let x_29 :: Int = peek x4_26[x3_26 + 1]
+                                      in let x_30 :: Int = peek x4_26[x3_22 + 1]
+                                         in let x_31 :: Int = x_29 + x_30
+                                            in let x_32 :: Int = peek x4_26[0]
+                                               in let m_16 :: Mem = poke x4_26[0] (x_32 + 2)
+                                                  in let m_17 :: Mem = poke m_16[x_32] 2
+                                                     in let m_18 :: Mem = poke m_17[x_32 + 1] x_31
+                                                        in (x_32, m_18)
+        t3 :: Mem -> Int -> (Int, Mem) = \ (m_19 :: Mem) (p_5 :: Int) ->
+            let x_33 :: Int = peek m_19[p_5 + 1]
+            in let x_34 :: Int = peek m_19[p_5 + 2]
+               in let x_35 :: Int = peek m_19[x_33]
+                  in let x1_28 :: (Int, Mem) = case x_35 == 1 of
+                           False -> case x_35 == 10 of
+                               False -> (x_33, m_19)
+                               True -> let x1_27 :: (Int, Mem) = t3 m_19 x_33
+                                 in case x1_27 of
+                                      (x3_27, x4_27) -> (x3_27, poke (poke x4_27[x_33] 1)[x_33 + 1] x3_27)
+                           True -> (peek m_19[x_33 + 1], m_19)
+                     in case x1_28 of
+                          (x3_28, x4_28) -> let x_36 :: Int = peek x4_28[x3_28]
+                            in let j_3 :: Int -> Mem -> (Int, Mem) = \ (v_2 :: Int) (m_20 :: Mem) ->
+                                     let x_37 :: Int = peek m_20[v_2]
+                                     in case x_37 == 3 of
+                                          False -> let x_38 :: Int = peek m_20[v_2 + 1]
+                                            in let x_39 :: Int = peek m_20[v_2 + 2]
+                                               in let x_40 :: Int = peek m_20[x_34]
+                                                  in let x1_30 :: (Int, Mem) = case x_40 == 1 of
+                                                           False -> case x_40 == 10 of
+                                                               False -> (x_34, m_20)
+                                                               True -> let x1_29 :: (Int, Mem) = t3 m_20 x_34
+                                                                 in case x1_29 of
+                                                                      (x3_29, x4_29) -> (x3_29, poke (poke x4_29[x_34] 1)[x_34 + 1] x3_29)
+                                                           True -> (peek m_20[x_34 + 1], m_20)
+                                                     in case x1_30 of
+                                                          (x3_30, x4_30) -> let x_41 :: Int = peek x4_30[x3_30 + 1]
+                                                            in let x_42 :: Int = peek x4_30[x3_30 + 2]
+                                                               in let x_43 :: Int = peek x4_30[0]
+                                                                  in let m_22 :: Mem = poke x4_30[0] (x_43 + 3)
+                                                                     in let m_23 :: Mem = poke m_22[x_43] 8
+                                                                        in let m_24 :: Mem = poke m_23[x_43 + 1] x_38
+                                                                           in let m_25 :: Mem = poke m_24[x_43 + 2] x_41
+                                                                              in let x_44 :: Int = peek m_25[0]
+                                                                                 in let m_26 :: Mem = poke m_25[0] (x_44 + 3)
+                                                                                    in let m_27 :: Mem = poke m_26[x_44] 10
+                                                                                       in let m_28 :: Mem = poke m_27[x_44 + 1] x_39
+                                                                                          in let m_29 :: Mem = poke m_28[x_44 + 2] x_42
+                                                                                             in let x_45 :: Int = peek m_29[0]
+                                                                                                in let m_30 :: Mem = poke m_29[0] (x_45 + 3)
+                                                                                                   in let m_31 :: Mem = poke m_30[x_45] 4
+                                                                                                      in let m_32 :: Mem = poke m_31[x_45 + 1] x_43
+                                                                                                         in let m_33 :: Mem = poke m_32[x_45 + 2] x_44
+                                                                                                            in (x_45, m_33)
+                                          True -> let x_46 :: Int = peek m_20[v_2 + 1]
+                                            in let x_47 :: Int = peek m_20[v_2 + 2]
+                                               in let x_48 :: Int = peek m_20[x_34]
+                                                  in let x1_32 :: (Int, Mem) = case x_48 == 1 of
+                                                           False -> case x_48 == 10 of
+                                                               False -> (x_34, m_20)
+                                                               True -> let x1_31 :: (Int, Mem) = t3 m_20 x_34
+                                                                 in case x1_31 of
+                                                                      (x3_31, x4_31) -> (x3_31, poke (poke x4_31[x_34] 1)[x_34 + 1] x3_31)
+                                                           True -> (peek m_20[x_34 + 1], m_20)
+                                                     in case x1_32 of
+                                                          (x3_32, x4_32) -> let x_49 :: Int = peek x4_32[x3_32 + 1]
+                                                            in let x_50 :: Int = peek x4_32[x3_32 + 2]
+                                                               in let x_51 :: Int = peek x4_32[0]
+                                                                  in let m_34 :: Mem = poke x4_32[0] (x_51 + 3)
+                                                                     in let m_35 :: Mem = poke m_34[x_51] 9
+                                                                        in let m_36 :: Mem = poke m_35[x_51 + 1] x_46
+                                                                           in let m_37 :: Mem = poke m_36[x_51 + 2] x_49
+                                                                              in let x_52 :: Int = peek m_37[0]
+                                                                                 in let m_38 :: Mem = poke m_37[0] (x_52 + 3)
+                                                                                    in let m_39 :: Mem = poke m_38[x_52] 10
+                                                                                       in let m_40 :: Mem = poke m_39[x_52 + 1] x_47
+                                                                                          in let m_41 :: Mem = poke m_40[x_52 + 2] x_50
+                                                                                             in let x_53 :: Int = peek m_41[0]
+                                                                                                in let m_42 :: Mem = poke m_41[0] (x_53 + 3)
+                                                                                                   in let m_43 :: Mem = poke m_42[x_53] 4
+                                                                                                      in let m_44 :: Mem = poke m_43[x_53 + 1] x_51
+                                                                                                         in let m_45 :: Mem = poke m_44[x_53 + 2] x_52
+                                                                                                            in (x_53, m_45)
+                               in case x_36 == 4 of
+                                    False -> let x_54 :: Int = peek x4_28[x3_28 + 1]
+                                      in let x_55 :: Int = peek x4_28[x3_28 + 2]
+                                         in let x_56 :: Int = peek x4_28[0]
+                                            in let m_46 :: Mem = poke x4_28[0] (x_56 + 3)
+                                               in let m_47 :: Mem = poke m_46[x_56] 5
+                                                  in let m_48 :: Mem = poke m_47[x_56 + 1] x_54
+                                                     in let m_49 :: Mem = poke m_48[x_56 + 2] x_55
+                                                        in j_3 x_56 m_49
+                                    True -> let x_57 :: Int = peek x4_28[x3_28 + 1]
+                                      in let x_58 :: Int = peek x4_28[x3_28 + 2]
+                                         in let x_59 :: Int = peek x4_28[0]
+                                            in let m_50 :: Mem = poke x4_28[0] (x_59 + 3)
+                                               in let m_51 :: Mem = poke m_50[x_59] 3
+                                                  in let m_52 :: Mem = poke m_51[x_59 + 1] x_57
+                                                     in let m_53 :: Mem = poke m_52[x_59 + 2] x_58
+                                                        in j_3 x_59 m_53
+        t4 :: Mem -> Int -> (Int, Mem) = \ (m_54 :: Mem) (p_6 :: Int) ->
+            let x_60 :: Int = peek m_54[p_6 + 1]
+            in let x_61 :: Int = x_60 - 1
+               in let x_62 :: Int = peek m_54[0]
+                  in let m_55 :: Mem = poke m_54[0] (x_62 + 2)
+                     in let m_56 :: Mem = poke m_55[x_62] 2
+                        in let m_57 :: Mem = poke m_56[x_62 + 1] x_61
+                           in (x_62, m_57)
+      in let m_58 :: Mem = poke m[0] 1
+         in let b_2 :: Bool = n == 0
+            in case b_2 of
+                 False -> let x_63 :: Int = n - 1
+                   in let b_3 :: Bool = x_63 == 0
+                      in case b_3 of
+                           False -> let x_64 :: Int = x_63 - 1
+                             in let b_4 :: Bool = x_64 == 0
+                                in case b_4 of
+                                     False -> let x_65 :: Int = peek m_58[0]
+                                       in let m_62 :: Mem = poke m_58[0] (x_65 + 3)
+                                          in let m_63 :: Mem = poke m_62[x_65] 10
+                                             in let x_66 :: Int = peek m_63[0]
+                                                in let m_64 :: Mem = poke m_63[0] (x_66 + 3)
+                                                   in let m_65 :: Mem = poke m_64[x_66] 6
+                                                      in let x_67 :: Int = peek m_65[0]
+                                                         in let m_66 :: Mem = poke m_65[0] (x_67 + 3)
+                                                            in let m_67 :: Mem = poke m_66[x_67] 4
+                                                               in let x_68 :: Int = peek m_67[0]
+                                                                  in let m_68 :: Mem = poke m_67[0] (x_68 + 3)
+                                                                     in let m_69 :: Mem = poke m_68[x_68] 7
+                                                                        in let m_70 :: Mem = poke m_69[x_68 + 1] 0
+                                                                           in let m_71 :: Mem = poke m_70[x_68 + 2] 1
+                                                                              in let x_69 :: Int = peek m_71[0]
+                                                                                 in let m_72 :: Mem = poke m_71[0] (x_69 + 3)
+                                                                                    in let m_73 :: Mem = poke m_72[x_69] 10
+                                                                                       in let m_74 :: Mem = poke m_73[x_69 + 1] x_66
+                                                                                          in let m_75 :: Mem = poke m_74[x_69 + 2] x_67
+                                                                                             in let m_76 :: Mem = poke m_75[x_67 + 1] x_68
+                                                                                                in let m_77 :: Mem = poke m_76[x_67 + 2] x_69
+                                                                                                   in let m_78 :: Mem = poke m_77[x_66 + 1] 1
+                                                                                                      in let m_79 :: Mem = poke m_78[x_66 + 2] x_67
+                                                                                                         in let m_80 :: Mem = poke m_79[x_65 + 1] x_66
+                                                                                                            in let m_81 :: Mem = poke m_80[x_65 + 2] x_67
+                                                                                                               in let x_70 :: Int = peek m_81[0]
+                                                                                                                  in let m_82 :: Mem = poke m_81[0] (x_70 + 2)
+                                                                                                                     in let m_83 :: Mem = poke m_82[x_70] 11
+                                                                                                                        in let m_84 :: Mem = poke m_83[x_70 + 1] x_64
+                                                                                                                           in let x1_33 :: (Int, Mem) = f0 m_84 x_65 x_70
+                                                                                                                              in x1_33
+                                     True -> (1, m_58)
+                           True -> (1, m_58)
+                 True -> (0, m_58)
+  in case x1_34 of
+       (x3_34, x4_34) -> x3_34
+---- C
+#include <stdint.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <math.h>
+
+/* the memory of the program (Staged.Low.Mem) */
+#ifndef MHS_MEM_WORDS
+#define MHS_MEM_WORDS (1 << 20)
+#endif
+static int64_t mhs_mem[MHS_MEM_WORDS];
+
+/* Staged.Low.Mem: Mem=0 */
+struct c { int tag; union { struct { void* f0; void* f1; } c; } u; };
+/* Data.Bool_Type.Bool: False=0, True=1 */
+
+static int64_t f0(int m_1, int64_t p, int64_t p_1);
+static int64_t t0(int m_7, int64_t p_2);
+static int64_t t1(int m_11, int64_t p_3);
+static int64_t t2(int m_15, int64_t p_4);
+static int64_t t3(int m_19, int64_t p_5);
+static int64_t t4(int m_54, int64_t p_6);
+static int64_t f0(int m_1, int64_t p, int64_t p_1) {
+  int64_t x = mhs_mem[p];
+  int64_t r_0;
+  switch ((x == 1)) {
+  case 0: {
+  int64_t x1 = t3(m_1, p);
+  int64_t r_1;
+  int64_t x3 = x1;
+  int x4 = 0;
+  mhs_mem[p] = 1;
+  mhs_mem[(p + 1)] = x3;
+  r_1 = x3;
+  r_0 = r_1; break; }
+  case 1: {
+  r_0 = mhs_mem[(p + 1)]; break; }
+  default: abort();
+  }
+  int64_t x1_1 = r_0;
+  int64_t r_2;
+  int64_t x3_1 = x1_1;
+  int x4_1 = 0;
+  int64_t x_1 = mhs_mem[(x3_1 + 1)];
+  int64_t x_2 = mhs_mem[(x3_1 + 2)];
+  int64_t x_3 = mhs_mem[p_1];
+  int64_t r_3;
+  switch ((x_3 == 1)) {
+  case 0: {
+  int64_t x1_2 = t4(x4_1, p_1);
+  int64_t r_4;
+  int64_t x3_2 = x1_2;
+  int x4_2 = 0;
+  mhs_mem[p_1] = 1;
+  mhs_mem[(p_1 + 1)] = x3_2;
+  r_4 = x3_2;
+  r_3 = r_4; break; }
+  case 1: {
+  r_3 = mhs_mem[(p_1 + 1)]; break; }
+  default: abort();
+  }
+  int64_t x1_3 = r_3;
+  int64_t r_5;
+  int64_t x3_3 = x1_3;
+  int x4_3 = 0;
+  int64_t x_4 = mhs_mem[(x3_3 + 1)];
+  int b = (x_4 == 0);
+  int64_t r_6;
+  switch (b) {
+  case 0: {
+  int64_t x_5 = mhs_mem[x_2];
+  int64_t r_7;
+  switch ((x_5 == 1)) {
+  case 0: {
+  int64_t x1_4 = t3(x4_3, x_2);
+  int64_t r_8;
+  int64_t x3_4 = x1_4;
+  int x4_4 = 0;
+  mhs_mem[x_2] = 1;
+  mhs_mem[(x_2 + 1)] = x3_4;
+  r_8 = x3_4;
+  r_7 = r_8; break; }
+  case 1: {
+  r_7 = mhs_mem[(x_2 + 1)]; break; }
+  default: abort();
+  }
+  int64_t x1_5 = r_7;
+  int64_t r_9;
+  int64_t x3_5 = x1_5;
+  int x4_5 = 0;
+  int64_t x_6 = mhs_mem[(x3_5 + 1)];
+  int64_t x_7 = mhs_mem[(x3_5 + 2)];
+  int64_t x_8 = mhs_mem[(x3_3 + 1)];
+  int64_t x_9 = (x_8 - 1);
+  int b_1 = (x_9 == 0);
+  int64_t r_10;
+  switch (b_1) {
+  case 0: {
+  int64_t x_10 = mhs_mem[0];
+  mhs_mem[0] = (x_10 + 2);
+  int m_4 = 0;
+  mhs_mem[x_10] = 11;
+  int m_5 = 0;
+  mhs_mem[(x_10 + 1)] = x_9;
+  int m_6 = 0;
+  int64_t x1_6 = f0(m_6, x_7, x_10);
+  r_10 = x1_6; break; }
+  case 1: {
+  int64_t x_11 = mhs_mem[x_6];
+  int64_t r_11;
+  switch ((x_11 == 1)) {
+  case 0: {
+  int64_t r_12;
+  switch ((x_11 == 7)) {
+  case 0: {
+  int64_t r_13;
+  switch ((x_11 == 8)) {
+  case 0: {
+  int64_t x1_7 = t2(x4_5, x_6);
+  int64_t r_14;
+  int64_t x3_7 = x1_7;
+  int x4_7 = 0;
+  mhs_mem[x_6] = 1;
+  mhs_mem[(x_6 + 1)] = x3_7;
+  r_14 = x3_7;
+  r_13 = r_14; break; }
+  case 1: {
+  int64_t x1_8 = t1(x4_5, x_6);
+  int64_t r_15;
+  int64_t x3_8 = x1_8;
+  int x4_8 = 0;
+  mhs_mem[x_6] = 1;
+  mhs_mem[(x_6 + 1)] = x3_8;
+  r_15 = x3_8;
+  r_13 = r_15; break; }
+  default: abort();
+  }
+  r_12 = r_13; break; }
+  case 1: {
+  int64_t x1_9 = t0(x4_5, x_6);
+  int64_t r_16;
+  int64_t x3_9 = x1_9;
+  int x4_9 = 0;
+  mhs_mem[x_6] = 1;
+  mhs_mem[(x_6 + 1)] = x3_9;
+  r_16 = x3_9;
+  r_12 = r_16; break; }
+  default: abort();
+  }
+  r_11 = r_12; break; }
+  case 1: {
+  r_11 = mhs_mem[(x_6 + 1)]; break; }
+  default: abort();
+  }
+  int64_t x1_10 = r_11;
+  int64_t r_17;
+  int64_t x3_10 = x1_10;
+  int x4_10 = 0;
+  int64_t x_12 = mhs_mem[(x3_10 + 1)];
+  r_17 = x_12;
+  r_10 = r_17; break; }
+  default: abort();
+  }
+  r_9 = r_10;
+  r_6 = r_9; break; }
+  case 1: {
+  int64_t x_13 = mhs_mem[x_1];
+  int64_t r_18;
+  switch ((x_13 == 1)) {
+  case 0: {
+  int64_t r_19;
+  switch ((x_13 == 7)) {
+  case 0: {
+  int64_t r_20;
+  switch ((x_13 == 8)) {
+  case 0: {
+  int64_t x1_11 = t2(x4_3, x_1);
+  int64_t r_21;
+  int64_t x3_11 = x1_11;
+  int x4_11 = 0;
+  mhs_mem[x_1] = 1;
+  mhs_mem[(x_1 + 1)] = x3_11;
+  r_21 = x3_11;
+  r_20 = r_21; break; }
+  case 1: {
+  int64_t x1_12 = t1(x4_3, x_1);
+  int64_t r_22;
+  int64_t x3_12 = x1_12;
+  int x4_12 = 0;
+  mhs_mem[x_1] = 1;
+  mhs_mem[(x_1 + 1)] = x3_12;
+  r_22 = x3_12;
+  r_20 = r_22; break; }
+  default: abort();
+  }
+  r_19 = r_20; break; }
+  case 1: {
+  int64_t x1_13 = t0(x4_3, x_1);
+  int64_t r_23;
+  int64_t x3_13 = x1_13;
+  int x4_13 = 0;
+  mhs_mem[x_1] = 1;
+  mhs_mem[(x_1 + 1)] = x3_13;
+  r_23 = x3_13;
+  r_19 = r_23; break; }
+  default: abort();
+  }
+  r_18 = r_19; break; }
+  case 1: {
+  r_18 = mhs_mem[(x_1 + 1)]; break; }
+  default: abort();
+  }
+  int64_t x1_14 = r_18;
+  int64_t r_24;
+  int64_t x3_14 = x1_14;
+  int x4_14 = 0;
+  int64_t x_14 = mhs_mem[(x3_14 + 1)];
+  r_24 = x_14;
+  r_6 = r_24; break; }
+  default: abort();
+  }
+  r_5 = r_6;
+  r_2 = r_5;
+  return r_2;
+}
+static int64_t t0(int m_7, int64_t p_2) {
+  int64_t x_15 = mhs_mem[(p_2 + 1)];
+  int64_t x_16 = mhs_mem[(p_2 + 2)];
+  int64_t x_17 = (x_15 + x_16);
+  int64_t x_18 = mhs_mem[0];
+  mhs_mem[0] = (x_18 + 2);
+  int m_8 = 0;
+  mhs_mem[x_18] = 2;
+  int m_9 = 0;
+  mhs_mem[(x_18 + 1)] = x_17;
+  int m_10 = 0;
+  return x_18;
+}
+static int64_t t1(int m_11, int64_t p_3) {
+  int64_t x_19 = mhs_mem[(p_3 + 1)];
+  int64_t x_20 = mhs_mem[(p_3 + 2)];
+  int64_t x_21 = mhs_mem[x_20];
+  int64_t r_25;
+  switch ((x_21 == 1)) {
+  case 0: {
+  int64_t r_26;
+  switch ((x_21 == 7)) {
+  case 0: {
+  int64_t r_27;
+  switch ((x_21 == 8)) {
+  case 0: {
+  int64_t x1_15 = t2(m_11, x_20);
+  int64_t r_28;
+  int64_t x3_15 = x1_15;
+  int x4_15 = 0;
+  mhs_mem[x_20] = 1;
+  mhs_mem[(x_20 + 1)] = x3_15;
+  r_28 = x3_15;
+  r_27 = r_28; break; }
+  case 1: {
+  int64_t x1_16 = t1(m_11, x_20);
+  int64_t r_29;
+  int64_t x3_16 = x1_16;
+  int x4_16 = 0;
+  mhs_mem[x_20] = 1;
+  mhs_mem[(x_20 + 1)] = x3_16;
+  r_29 = x3_16;
+  r_27 = r_29; break; }
+  default: abort();
+  }
+  r_26 = r_27; break; }
+  case 1: {
+  int64_t x1_17 = t0(m_11, x_20);
+  int64_t r_30;
+  int64_t x3_17 = x1_17;
+  int x4_17 = 0;
+  mhs_mem[x_20] = 1;
+  mhs_mem[(x_20 + 1)] = x3_17;
+  r_30 = x3_17;
+  r_26 = r_30; break; }
+  default: abort();
+  }
+  r_25 = r_26; break; }
+  case 1: {
+  r_25 = mhs_mem[(x_20 + 1)]; break; }
+  default: abort();
+  }
+  int64_t x1_18 = r_25;
+  int64_t r_31;
+  int64_t x3_18 = x1_18;
+  int x4_18 = 0;
+  int64_t x_22 = mhs_mem[(x3_18 + 1)];
+  int64_t x_23 = (x_19 + x_22);
+  int64_t x_24 = mhs_mem[0];
+  mhs_mem[0] = (x_24 + 2);
+  int m_12 = 0;
+  mhs_mem[x_24] = 2;
+  int m_13 = 0;
+  mhs_mem[(x_24 + 1)] = x_23;
+  int m_14 = 0;
+  r_31 = x_24;
+  return r_31;
+}
+static int64_t t2(int m_15, int64_t p_4) {
+  int64_t x_25 = mhs_mem[(p_4 + 1)];
+  int64_t x_26 = mhs_mem[(p_4 + 2)];
+  int64_t x_27 = mhs_mem[x_26];
+  int64_t r_32;
+  switch ((x_27 == 1)) {
+  case 0: {
+  int64_t r_33;
+  switch ((x_27 == 7)) {
+  case 0: {
+  int64_t r_34;
+  switch ((x_27 == 8)) {
+  case 0: {
+  int64_t x1_19 = t2(m_15, x_26);
+  int64_t r_35;
+  int64_t x3_19 = x1_19;
+  int x4_19 = 0;
+  mhs_mem[x_26] = 1;
+  mhs_mem[(x_26 + 1)] = x3_19;
+  r_35 = x3_19;
+  r_34 = r_35; break; }
+  case 1: {
+  int64_t x1_20 = t1(m_15, x_26);
+  int64_t r_36;
+  int64_t x3_20 = x1_20;
+  int x4_20 = 0;
+  mhs_mem[x_26] = 1;
+  mhs_mem[(x_26 + 1)] = x3_20;
+  r_36 = x3_20;
+  r_34 = r_36; break; }
+  default: abort();
+  }
+  r_33 = r_34; break; }
+  case 1: {
+  int64_t x1_21 = t0(m_15, x_26);
+  int64_t r_37;
+  int64_t x3_21 = x1_21;
+  int x4_21 = 0;
+  mhs_mem[x_26] = 1;
+  mhs_mem[(x_26 + 1)] = x3_21;
+  r_37 = x3_21;
+  r_33 = r_37; break; }
+  default: abort();
+  }
+  r_32 = r_33; break; }
+  case 1: {
+  r_32 = mhs_mem[(x_26 + 1)]; break; }
+  default: abort();
+  }
+  int64_t x1_22 = r_32;
+  int64_t r_38;
+  int64_t x3_22 = x1_22;
+  int x4_22 = 0;
+  int64_t x_28 = mhs_mem[x_25];
+  int64_t r_39;
+  switch ((x_28 == 1)) {
+  case 0: {
+  int64_t r_40;
+  switch ((x_28 == 7)) {
+  case 0: {
+  int64_t r_41;
+  switch ((x_28 == 8)) {
+  case 0: {
+  int64_t x1_23 = t2(x4_22, x_25);
+  int64_t r_42;
+  int64_t x3_23 = x1_23;
+  int x4_23 = 0;
+  mhs_mem[x_25] = 1;
+  mhs_mem[(x_25 + 1)] = x3_23;
+  r_42 = x3_23;
+  r_41 = r_42; break; }
+  case 1: {
+  int64_t x1_24 = t1(x4_22, x_25);
+  int64_t r_43;
+  int64_t x3_24 = x1_24;
+  int x4_24 = 0;
+  mhs_mem[x_25] = 1;
+  mhs_mem[(x_25 + 1)] = x3_24;
+  r_43 = x3_24;
+  r_41 = r_43; break; }
+  default: abort();
+  }
+  r_40 = r_41; break; }
+  case 1: {
+  int64_t x1_25 = t0(x4_22, x_25);
+  int64_t r_44;
+  int64_t x3_25 = x1_25;
+  int x4_25 = 0;
+  mhs_mem[x_25] = 1;
+  mhs_mem[(x_25 + 1)] = x3_25;
+  r_44 = x3_25;
+  r_40 = r_44; break; }
+  default: abort();
+  }
+  r_39 = r_40; break; }
+  case 1: {
+  r_39 = mhs_mem[(x_25 + 1)]; break; }
+  default: abort();
+  }
+  int64_t x1_26 = r_39;
+  int64_t r_45;
+  int64_t x3_26 = x1_26;
+  int x4_26 = 0;
+  int64_t x_29 = mhs_mem[(x3_26 + 1)];
+  int64_t x_30 = mhs_mem[(x3_22 + 1)];
+  int64_t x_31 = (x_29 + x_30);
+  int64_t x_32 = mhs_mem[0];
+  mhs_mem[0] = (x_32 + 2);
+  int m_16 = 0;
+  mhs_mem[x_32] = 2;
+  int m_17 = 0;
+  mhs_mem[(x_32 + 1)] = x_31;
+  int m_18 = 0;
+  r_45 = x_32;
+  r_38 = r_45;
+  return r_38;
+}
+static int64_t j_3(int64_t x_34, int64_t v_2, int m_20) {
+  int64_t x_37 = mhs_mem[v_2];
+  int64_t r_50;
+  switch ((x_37 == 3)) {
+  case 0: {
+  int64_t x_38 = mhs_mem[(v_2 + 1)];
+  int64_t x_39 = mhs_mem[(v_2 + 2)];
+  int64_t x_40 = mhs_mem[x_34];
+  int64_t r_51;
+  switch ((x_40 == 1)) {
+  case 0: {
+  int64_t r_52;
+  switch ((x_40 == 10)) {
+  case 0: {
+  r_52 = x_34; break; }
+  case 1: {
+  int64_t x1_29 = t3(m_20, x_34);
+  int64_t r_53;
+  int64_t x3_29 = x1_29;
+  int x4_29 = 0;
+  mhs_mem[x_34] = 1;
+  mhs_mem[(x_34 + 1)] = x3_29;
+  r_53 = x3_29;
+  r_52 = r_53; break; }
+  default: abort();
+  }
+  r_51 = r_52; break; }
+  case 1: {
+  r_51 = mhs_mem[(x_34 + 1)]; break; }
+  default: abort();
+  }
+  int64_t x1_30 = r_51;
+  int64_t r_54;
+  int64_t x3_30 = x1_30;
+  int x4_30 = 0;
+  int64_t x_41 = mhs_mem[(x3_30 + 1)];
+  int64_t x_42 = mhs_mem[(x3_30 + 2)];
+  int64_t x_43 = mhs_mem[0];
+  mhs_mem[0] = (x_43 + 3);
+  int m_22 = 0;
+  mhs_mem[x_43] = 8;
+  int m_23 = 0;
+  mhs_mem[(x_43 + 1)] = x_38;
+  int m_24 = 0;
+  mhs_mem[(x_43 + 2)] = x_41;
+  int m_25 = 0;
+  int64_t x_44 = mhs_mem[0];
+  mhs_mem[0] = (x_44 + 3);
+  int m_26 = 0;
+  mhs_mem[x_44] = 10;
+  int m_27 = 0;
+  mhs_mem[(x_44 + 1)] = x_39;
+  int m_28 = 0;
+  mhs_mem[(x_44 + 2)] = x_42;
+  int m_29 = 0;
+  int64_t x_45 = mhs_mem[0];
+  mhs_mem[0] = (x_45 + 3);
+  int m_30 = 0;
+  mhs_mem[x_45] = 4;
+  int m_31 = 0;
+  mhs_mem[(x_45 + 1)] = x_43;
+  int m_32 = 0;
+  mhs_mem[(x_45 + 2)] = x_44;
+  int m_33 = 0;
+  r_54 = x_45;
+  r_50 = r_54; break; }
+  case 1: {
+  int64_t x_46 = mhs_mem[(v_2 + 1)];
+  int64_t x_47 = mhs_mem[(v_2 + 2)];
+  int64_t x_48 = mhs_mem[x_34];
+  int64_t r_55;
+  switch ((x_48 == 1)) {
+  case 0: {
+  int64_t r_56;
+  switch ((x_48 == 10)) {
+  case 0: {
+  r_56 = x_34; break; }
+  case 1: {
+  int64_t x1_31 = t3(m_20, x_34);
+  int64_t r_57;
+  int64_t x3_31 = x1_31;
+  int x4_31 = 0;
+  mhs_mem[x_34] = 1;
+  mhs_mem[(x_34 + 1)] = x3_31;
+  r_57 = x3_31;
+  r_56 = r_57; break; }
+  default: abort();
+  }
+  r_55 = r_56; break; }
+  case 1: {
+  r_55 = mhs_mem[(x_34 + 1)]; break; }
+  default: abort();
+  }
+  int64_t x1_32 = r_55;
+  int64_t r_58;
+  int64_t x3_32 = x1_32;
+  int x4_32 = 0;
+  int64_t x_49 = mhs_mem[(x3_32 + 1)];
+  int64_t x_50 = mhs_mem[(x3_32 + 2)];
+  int64_t x_51 = mhs_mem[0];
+  mhs_mem[0] = (x_51 + 3);
+  int m_34 = 0;
+  mhs_mem[x_51] = 9;
+  int m_35 = 0;
+  mhs_mem[(x_51 + 1)] = x_46;
+  int m_36 = 0;
+  mhs_mem[(x_51 + 2)] = x_49;
+  int m_37 = 0;
+  int64_t x_52 = mhs_mem[0];
+  mhs_mem[0] = (x_52 + 3);
+  int m_38 = 0;
+  mhs_mem[x_52] = 10;
+  int m_39 = 0;
+  mhs_mem[(x_52 + 1)] = x_47;
+  int m_40 = 0;
+  mhs_mem[(x_52 + 2)] = x_50;
+  int m_41 = 0;
+  int64_t x_53 = mhs_mem[0];
+  mhs_mem[0] = (x_53 + 3);
+  int m_42 = 0;
+  mhs_mem[x_53] = 4;
+  int m_43 = 0;
+  mhs_mem[(x_53 + 1)] = x_51;
+  int m_44 = 0;
+  mhs_mem[(x_53 + 2)] = x_52;
+  int m_45 = 0;
+  r_58 = x_53;
+  r_50 = r_58; break; }
+  default: abort();
+  }
+  return r_50;
+}
+static int64_t t3(int m_19, int64_t p_5) {
+  int64_t x_33 = mhs_mem[(p_5 + 1)];
+  int64_t x_34 = mhs_mem[(p_5 + 2)];
+  int64_t x_35 = mhs_mem[x_33];
+  int64_t r_46;
+  switch ((x_35 == 1)) {
+  case 0: {
+  int64_t r_47;
+  switch ((x_35 == 10)) {
+  case 0: {
+  r_47 = x_33; break; }
+  case 1: {
+  int64_t x1_27 = t3(m_19, x_33);
+  int64_t r_48;
+  int64_t x3_27 = x1_27;
+  int x4_27 = 0;
+  mhs_mem[x_33] = 1;
+  mhs_mem[(x_33 + 1)] = x3_27;
+  r_48 = x3_27;
+  r_47 = r_48; break; }
+  default: abort();
+  }
+  r_46 = r_47; break; }
+  case 1: {
+  r_46 = mhs_mem[(x_33 + 1)]; break; }
+  default: abort();
+  }
+  int64_t x1_28 = r_46;
+  int64_t r_49;
+  int64_t x3_28 = x1_28;
+  int x4_28 = 0;
+  int64_t x_36 = mhs_mem[x3_28];
+  int64_t r_59;
+  switch ((x_36 == 4)) {
+  case 0: {
+  int64_t x_54 = mhs_mem[(x3_28 + 1)];
+  int64_t x_55 = mhs_mem[(x3_28 + 2)];
+  int64_t x_56 = mhs_mem[0];
+  mhs_mem[0] = (x_56 + 3);
+  int m_46 = 0;
+  mhs_mem[x_56] = 5;
+  int m_47 = 0;
+  mhs_mem[(x_56 + 1)] = x_54;
+  int m_48 = 0;
+  mhs_mem[(x_56 + 2)] = x_55;
+  int m_49 = 0;
+  r_59 = j_3(x_34, x_56, m_49); break; }
+  case 1: {
+  int64_t x_57 = mhs_mem[(x3_28 + 1)];
+  int64_t x_58 = mhs_mem[(x3_28 + 2)];
+  int64_t x_59 = mhs_mem[0];
+  mhs_mem[0] = (x_59 + 3);
+  int m_50 = 0;
+  mhs_mem[x_59] = 3;
+  int m_51 = 0;
+  mhs_mem[(x_59 + 1)] = x_57;
+  int m_52 = 0;
+  mhs_mem[(x_59 + 2)] = x_58;
+  int m_53 = 0;
+  r_59 = j_3(x_34, x_59, m_53); break; }
+  default: abort();
+  }
+  r_49 = r_59;
+  return r_49;
+}
+static int64_t t4(int m_54, int64_t p_6) {
+  int64_t x_60 = mhs_mem[(p_6 + 1)];
+  int64_t x_61 = (x_60 - 1);
+  int64_t x_62 = mhs_mem[0];
+  mhs_mem[0] = (x_62 + 2);
+  int m_55 = 0;
+  mhs_mem[x_62] = 2;
+  int m_56 = 0;
+  mhs_mem[(x_62 + 1)] = x_61;
+  int m_57 = 0;
+  return x_62;
+}
+
+int64_t fibs(int m, int64_t n) {
+  mhs_mem[0] = 1;
+  int m_58 = 0;
+  int b_2 = (n == 0);
+  int64_t r_60;
+  switch (b_2) {
+  case 0: {
+  int64_t x_63 = (n - 1);
+  int b_3 = (x_63 == 0);
+  int64_t r_61;
+  switch (b_3) {
+  case 0: {
+  int64_t x_64 = (x_63 - 1);
+  int b_4 = (x_64 == 0);
+  int64_t r_62;
+  switch (b_4) {
+  case 0: {
+  int64_t x_65 = mhs_mem[0];
+  mhs_mem[0] = (x_65 + 3);
+  int m_62 = 0;
+  mhs_mem[x_65] = 10;
+  int m_63 = 0;
+  int64_t x_66 = mhs_mem[0];
+  mhs_mem[0] = (x_66 + 3);
+  int m_64 = 0;
+  mhs_mem[x_66] = 6;
+  int m_65 = 0;
+  int64_t x_67 = mhs_mem[0];
+  mhs_mem[0] = (x_67 + 3);
+  int m_66 = 0;
+  mhs_mem[x_67] = 4;
+  int m_67 = 0;
+  int64_t x_68 = mhs_mem[0];
+  mhs_mem[0] = (x_68 + 3);
+  int m_68 = 0;
+  mhs_mem[x_68] = 7;
+  int m_69 = 0;
+  mhs_mem[(x_68 + 1)] = 0;
+  int m_70 = 0;
+  mhs_mem[(x_68 + 2)] = 1;
+  int m_71 = 0;
+  int64_t x_69 = mhs_mem[0];
+  mhs_mem[0] = (x_69 + 3);
+  int m_72 = 0;
+  mhs_mem[x_69] = 10;
+  int m_73 = 0;
+  mhs_mem[(x_69 + 1)] = x_66;
+  int m_74 = 0;
+  mhs_mem[(x_69 + 2)] = x_67;
+  int m_75 = 0;
+  mhs_mem[(x_67 + 1)] = x_68;
+  int m_76 = 0;
+  mhs_mem[(x_67 + 2)] = x_69;
+  int m_77 = 0;
+  mhs_mem[(x_66 + 1)] = 1;
+  int m_78 = 0;
+  mhs_mem[(x_66 + 2)] = x_67;
+  int m_79 = 0;
+  mhs_mem[(x_65 + 1)] = x_66;
+  int m_80 = 0;
+  mhs_mem[(x_65 + 2)] = x_67;
+  int m_81 = 0;
+  int64_t x_70 = mhs_mem[0];
+  mhs_mem[0] = (x_70 + 2);
+  int m_82 = 0;
+  mhs_mem[x_70] = 11;
+  int m_83 = 0;
+  mhs_mem[(x_70 + 1)] = x_64;
+  int m_84 = 0;
+  int64_t x1_33 = f0(m_84, x_65, x_70);
+  r_62 = x1_33; break; }
+  case 1: {
+  r_62 = 1; break; }
+  default: abort();
+  }
+  r_61 = r_62; break; }
+  case 1: {
+  r_61 = 1; break; }
+  default: abort();
+  }
+  r_60 = r_61; break; }
+  case 1: {
+  r_60 = 0; break; }
+  default: abort();
+  }
+  int64_t x1_34 = r_60;
+  int64_t r_63;
+  int64_t x3_34 = x1_34;
+  int x4_34 = 0;
+  r_63 = x3_34;
+  return r_63;
+}
+---- reference interpreter
+[(0,0),(1,1),(2,1),(10,55),(40,102334155)]
+==== sumSquares
+node kinds (tag: kind):
+  2: Int
+  3: P lambda53(int, ref)
+  4: P lambda54(int, ref)
+  5: P lambda64(lambda78())
+  6: P lambda65()
+  7: P lambda77(int)
+  8: P lambda78()
+  9: P lambda82(ref, ref)
+  10: P lambda83(ref, ref)
+  11: F thunk62(int, int)
+  12: F thunk87(lambda98(), int)
+  13: F thunk90(lambda98(), ref)
+fields (kind.field: kinds):
+  3.2: {11}
+  4.2: {11}
+  9.1: {12}
+  9.2: {13}
+  10.1: {12}
+  10.2: {13}
+  13.1: {11}
+results of thunk code (kind: kinds):
+  11: {4, 6}
+  12: {2}
+  13: {8, 10}
+joins (site: kinds):
+  66: {4, 6}
+  69: {7, 9}
+  75: Int
+  79: {3, 5}
+  93: {8, 10}
+recursive applications (lambda shape: result):
+  lambda76(ptr): Int
+---- low code
+-- type: Mem -> Int -> Int
+-- data Mem = Mem
+-- data (,) #0 #1 = (,) #0 #1
+-- data Bool = False | True
+\ (m :: Mem) (n :: Int) ->
+  let x1_8 :: (Int, Mem) = letrec
+        f0 :: Mem -> Int -> (Int, Mem) = \ (m_1 :: Mem) (p :: Int) ->
+            let x :: Int = peek m_1[p]
+            in let j_1 :: Int -> Mem -> (Int, Mem) = \ (v :: Int) (m_2 :: Mem) ->
+                     let x_1 :: Int = peek m_2[v]
+                     in case x_1 == 7 of
+                          False -> let x_2 :: Int = peek m_2[v + 1]
+                            in let x_3 :: Int = peek m_2[v + 2]
+                               in let x_4 :: Int = peek m_2[x_3]
+                                  in let x1_1 :: (Int, Mem) = case x_4 == 1 of
+                                           False -> let x1 :: (Int, Mem) = t2 m_2 x_3
+                                             in case x1 of
+                                                  (x3, x4) -> (x3, poke (poke x4[x_3] 1)[x_3 + 1] x3)
+                                           True -> (peek m_2[x_3 + 1], m_2)
+                                     in case x1_1 of
+                                          (x3_1, x4_1) -> let x1_2 :: (Int, Mem) = f0 x4_1 x3_1
+                                            in case x1_2 of
+                                                 (x3_2, x4_2) -> let x_5 :: Int = peek x4_2[x_2]
+                                                   in let x1_4 :: (Int, Mem) = case x_5 == 1 of
+                                                            False -> let x1_3 :: (Int, Mem) = t1 x4_2 x_2
+                                                              in case x1_3 of
+                                                                   (x3_3, x4_3) -> (x3_3, poke (poke x4_3[x_2] 1)[x_2 + 1] x3_3)
+                                                            True -> (peek x4_2[x_2 + 1], x4_2)
+                                                      in case x1_4 of
+                                                           (x3_4, x4_4) -> let x_6 :: Int = peek x4_4[x3_4 + 1]
+                                                             in let x_7 :: Int = x_6 + x3_2
+                                                                in (x_7, x4_4)
+                          True -> let x_8 :: Int = peek m_2[v + 1]
+                            in (x_8, m_2)
+               in case x == 8 of
+                    False -> let x_9 :: Int = peek m_1[p + 1]
+                      in let x_10 :: Int = peek m_1[p + 2]
+                         in let x_11 :: Int = peek m_1[0]
+                            in let m_4 :: Mem = poke m_1[0] (x_11 + 3)
+                               in let m_5 :: Mem = poke m_4[x_11] 9
+                                  in let m_6 :: Mem = poke m_5[x_11 + 1] x_9
+                                     in let m_7 :: Mem = poke m_6[x_11 + 2] x_10
+                                        in j_1 x_11 m_7
+                    True -> let x_12 :: Int = peek m_1[0]
+                      in let m_8 :: Mem = poke m_1[0] (x_12 + 2)
+                         in let m_9 :: Mem = poke m_8[x_12] 7
+                            in let m_10 :: Mem = poke m_9[x_12 + 1] 0
+                               in j_1 x_12 m_10
+        t0 :: Mem -> Int -> (Int, Mem) = \ (m_11 :: Mem) (p_1 :: Int) ->
+            let x_13 :: Int = peek m_11[p_1 + 1]
+            in let x_14 :: Int = peek m_11[p_1 + 2]
+               in let x_15 :: Int = x_13 + 1
+                  in let b :: Bool = x_15 > x_14
+                     in case b of
+                          False -> let x_16 :: Int = peek m_11[0]
+                            in let m_13 :: Mem = poke m_11[0] (x_16 + 3)
+                               in let m_14 :: Mem = poke m_13[x_16] 11
+                                  in let m_15 :: Mem = poke m_14[x_16 + 1] x_15
+                                     in let m_16 :: Mem = poke m_15[x_16 + 2] x_14
+                                        in let x_17 :: Int = peek m_16[0]
+                                           in let m_17 :: Mem = poke m_16[0] (x_17 + 3)
+                                              in let m_18 :: Mem = poke m_17[x_17] 4
+                                                 in let m_19 :: Mem = poke m_18[x_17 + 1] x_15
+                                                    in let m_20 :: Mem = poke m_19[x_17 + 2] x_16
+                                                       in (x_17, m_20)
+                          True -> let x_18 :: Int = peek m_11[0]
+                            in let m_21 :: Mem = poke m_11[0] (x_18 + 1)
+                               in let m_22 :: Mem = poke m_21[x_18] 6
+                                  in (x_18, m_22)
+        t1 :: Mem -> Int -> (Int, Mem) = \ (m_23 :: Mem) (p_2 :: Int) ->
+            let x_19 :: Int = peek m_23[p_2 + 1]
+            in let x_20 :: Int = x_19 * x_19
+               in let x_21 :: Int = peek m_23[0]
+                  in let m_24 :: Mem = poke m_23[0] (x_21 + 2)
+                     in let m_25 :: Mem = poke m_24[x_21] 2
+                        in let m_26 :: Mem = poke m_25[x_21 + 1] x_20
+                           in (x_21, m_26)
+        t2 :: Mem -> Int -> (Int, Mem) = \ (m_27 :: Mem) (p_3 :: Int) ->
+            let x_22 :: Int = peek m_27[p_3 + 1]
+            in let x_23 :: Int = peek m_27[x_22]
+               in let x1_6 :: (Int, Mem) = case x_23 == 1 of
+                        False -> let x1_5 :: (Int, Mem) = t0 m_27 x_22
+                          in case x1_5 of
+                               (x3_5, x4_5) -> (x3_5, poke (poke x4_5[x_22] 1)[x_22 + 1] x3_5)
+                        True -> (peek m_27[x_22 + 1], m_27)
+                  in case x1_6 of
+                       (x3_6, x4_6) -> let x_24 :: Int = peek x4_6[x3_6]
+                         in let j_4 :: Int -> Mem -> (Int, Mem) = \ (v_3 :: Int) (m_28 :: Mem) ->
+                                  let x_25 :: Int = peek m_28[v_3]
+                                  in case x_25 == 3 of
+                                       False -> let x_26 :: Int = peek m_28[0]
+                                         in let m_30 :: Mem = poke m_28[0] (x_26 + 1)
+                                            in let m_31 :: Mem = poke m_30[x_26] 8
+                                               in (x_26, m_31)
+                                       True -> let x_27 :: Int = peek m_28[v_3 + 1]
+                                         in let x_28 :: Int = peek m_28[v_3 + 2]
+                                            in let x_29 :: Int = peek m_28[0]
+                                               in let m_32 :: Mem = poke m_28[0] (x_29 + 2)
+                                                  in let m_33 :: Mem = poke m_32[x_29] 12
+                                                     in let m_34 :: Mem = poke m_33[x_29 + 1] x_27
+                                                        in let x_30 :: Int = peek m_34[0]
+                                                           in let m_35 :: Mem = poke m_34[0] (x_30 + 2)
+                                                              in let m_36 :: Mem = poke m_35[x_30] 13
+                                                                 in let m_37 :: Mem = poke m_36[x_30 + 1] x_28
+                                                                    in let x_31 :: Int = peek m_37[0]
+                                                                       in let m_38 :: Mem = poke m_37[0] (x_31 + 3)
+                                                                          in let m_39 :: Mem = poke m_38[x_31] 10
+                                                                             in let m_40 :: Mem = poke m_39[x_31 + 1] x_29
+                                                                                in let m_41 :: Mem = poke m_40[x_31 + 2] x_30
+                                                                                   in (x_31, m_41)
+                            in case x_24 == 4 of
+                                 False -> let x_32 :: Int = peek x4_6[0]
+                                   in let m_42 :: Mem = poke x4_6[0] (x_32 + 1)
+                                      in let m_43 :: Mem = poke m_42[x_32] 5
+                                         in j_4 x_32 m_43
+                                 True -> let x_33 :: Int = peek x4_6[x3_6 + 1]
+                                   in let x_34 :: Int = peek x4_6[x3_6 + 2]
+                                      in let x_35 :: Int = peek x4_6[0]
+                                         in let m_44 :: Mem = poke x4_6[0] (x_35 + 3)
+                                            in let m_45 :: Mem = poke m_44[x_35] 3
+                                               in let m_46 :: Mem = poke m_45[x_35 + 1] x_33
+                                                  in let m_47 :: Mem = poke m_46[x_35 + 2] x_34
+                                                     in j_4 x_35 m_47
+      in let m_48 :: Mem = poke m[0] 1
+         in let b_1 :: Bool = 1 > n
+            in let j_7 :: Int -> Mem -> (Int, Mem) = \ (v_5 :: Int) (m_49 :: Mem) ->
+                     let x_36 :: Int = peek m_49[v_5]
+                     in let j_6 :: Int -> Mem -> (Int, Mem) = \ (v_6 :: Int) (m_50 :: Mem) ->
+                              let x_37 :: Int = peek m_50[v_6]
+                              in let j_5 :: Int -> Mem -> (Int, Mem) = \ (v_7 :: Int) (m_51 :: Mem) ->
+                                       let x1_7 :: (Int, Mem) = f0 m_51 v_7
+                                       in x1_7
+                                 in case x_37 == 3 of
+                                      False -> let x_38 :: Int = peek m_50[0]
+                                        in let m_52 :: Mem = poke m_50[0] (x_38 + 1)
+                                           in let m_53 :: Mem = poke m_52[x_38] 8
+                                              in j_5 x_38 m_53
+                                      True -> let x_39 :: Int = peek m_50[v_6 + 1]
+                                        in let x_40 :: Int = peek m_50[v_6 + 2]
+                                           in let x_41 :: Int = peek m_50[0]
+                                              in let m_54 :: Mem = poke m_50[0] (x_41 + 2)
+                                                 in let m_55 :: Mem = poke m_54[x_41] 12
+                                                    in let m_56 :: Mem = poke m_55[x_41 + 1] x_39
+                                                       in let x_42 :: Int = peek m_56[0]
+                                                          in let m_57 :: Mem = poke m_56[0] (x_42 + 2)
+                                                             in let m_58 :: Mem = poke m_57[x_42] 13
+                                                                in let m_59 :: Mem = poke m_58[x_42 + 1] x_40
+                                                                   in let x_43 :: Int = peek m_59[0]
+                                                                      in let m_60 :: Mem = poke m_59[0] (x_43 + 3)
+                                                                         in let m_61 :: Mem = poke m_60[x_43] 10
+                                                                            in let m_62 :: Mem = poke m_61[x_43 + 1] x_41
+                                                                               in let m_63 :: Mem = poke m_62[x_43 + 2] x_42
+                                                                                  in j_5 x_43 m_63
+                        in case x_36 == 4 of
+                             False -> let x_44 :: Int = peek m_49[0]
+                               in let m_64 :: Mem = poke m_49[0] (x_44 + 1)
+                                  in let m_65 :: Mem = poke m_64[x_44] 5
+                                     in j_6 x_44 m_65
+                             True -> let x_45 :: Int = peek m_49[v_5 + 1]
+                               in let x_46 :: Int = peek m_49[v_5 + 2]
+                                  in let x_47 :: Int = peek m_49[0]
+                                     in let m_66 :: Mem = poke m_49[0] (x_47 + 3)
+                                        in let m_67 :: Mem = poke m_66[x_47] 3
+                                           in let m_68 :: Mem = poke m_67[x_47 + 1] x_45
+                                              in let m_69 :: Mem = poke m_68[x_47 + 2] x_46
+                                                 in j_6 x_47 m_69
+               in case b_1 of
+                    False -> let x_48 :: Int = peek m_48[0]
+                      in let m_70 :: Mem = poke m_48[0] (x_48 + 3)
+                         in let m_71 :: Mem = poke m_70[x_48] 11
+                            in let m_72 :: Mem = poke m_71[x_48 + 1] 1
+                               in let m_73 :: Mem = poke m_72[x_48 + 2] n
+                                  in let x_49 :: Int = peek m_73[0]
+                                     in let m_74 :: Mem = poke m_73[0] (x_49 + 3)
+                                        in let m_75 :: Mem = poke m_74[x_49] 4
+                                           in let m_76 :: Mem = poke m_75[x_49 + 1] 1
+                                              in let m_77 :: Mem = poke m_76[x_49 + 2] x_48
+                                                 in j_7 x_49 m_77
+                    True -> let x_50 :: Int = peek m_48[0]
+                      in let m_78 :: Mem = poke m_48[0] (x_50 + 1)
+                         in let m_79 :: Mem = poke m_78[x_50] 6
+                            in j_7 x_50 m_79
+  in case x1_8 of
+       (x3_8, x4_8) -> x3_8
+---- C
+#include <stdint.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <math.h>
+
+/* the memory of the program (Staged.Low.Mem) */
+#ifndef MHS_MEM_WORDS
+#define MHS_MEM_WORDS (1 << 20)
+#endif
+static int64_t mhs_mem[MHS_MEM_WORDS];
+
+/* Staged.Low.Mem: Mem=0 */
+struct c { int tag; union { struct { void* f0; void* f1; } c; } u; };
+/* Data.Bool_Type.Bool: False=0, True=1 */
+
+static int64_t f0(int m_1, int64_t p);
+static int64_t t0(int m_11, int64_t p_1);
+static int64_t t1(int m_23, int64_t p_2);
+static int64_t t2(int m_27, int64_t p_3);
+static int64_t j_1(int64_t v, int m_2) {
+  int64_t x_1 = mhs_mem[v];
+  int64_t r_0;
+  switch ((x_1 == 7)) {
+  case 0: {
+  int64_t x_2 = mhs_mem[(v + 1)];
+  int64_t x_3 = mhs_mem[(v + 2)];
+  int64_t x_4 = mhs_mem[x_3];
+  int64_t r_1;
+  switch ((x_4 == 1)) {
+  case 0: {
+  int64_t x1 = t2(m_2, x_3);
+  int64_t r_2;
+  int64_t x3 = x1;
+  int x4 = 0;
+  mhs_mem[x_3] = 1;
+  mhs_mem[(x_3 + 1)] = x3;
+  r_2 = x3;
+  r_1 = r_2; break; }
+  case 1: {
+  r_1 = mhs_mem[(x_3 + 1)]; break; }
+  default: abort();
+  }
+  int64_t x1_1 = r_1;
+  int64_t r_3;
+  int64_t x3_1 = x1_1;
+  int x4_1 = 0;
+  int64_t x1_2 = f0(x4_1, x3_1);
+  int64_t r_4;
+  int64_t x3_2 = x1_2;
+  int x4_2 = 0;
+  int64_t x_5 = mhs_mem[x_2];
+  int64_t r_5;
+  switch ((x_5 == 1)) {
+  case 0: {
+  int64_t x1_3 = t1(x4_2, x_2);
+  int64_t r_6;
+  int64_t x3_3 = x1_3;
+  int x4_3 = 0;
+  mhs_mem[x_2] = 1;
+  mhs_mem[(x_2 + 1)] = x3_3;
+  r_6 = x3_3;
+  r_5 = r_6; break; }
+  case 1: {
+  r_5 = mhs_mem[(x_2 + 1)]; break; }
+  default: abort();
+  }
+  int64_t x1_4 = r_5;
+  int64_t r_7;
+  int64_t x3_4 = x1_4;
+  int x4_4 = 0;
+  int64_t x_6 = mhs_mem[(x3_4 + 1)];
+  int64_t x_7 = (x_6 + x3_2);
+  r_7 = x_7;
+  r_4 = r_7;
+  r_3 = r_4;
+  r_0 = r_3; break; }
+  case 1: {
+  int64_t x_8 = mhs_mem[(v + 1)];
+  r_0 = x_8; break; }
+  default: abort();
+  }
+  return r_0;
+}
+static int64_t f0(int m_1, int64_t p) {
+  int64_t x = mhs_mem[p];
+  int64_t r_8;
+  switch ((x == 8)) {
+  case 0: {
+  int64_t x_9 = mhs_mem[(p + 1)];
+  int64_t x_10 = mhs_mem[(p + 2)];
+  int64_t x_11 = mhs_mem[0];
+  mhs_mem[0] = (x_11 + 3);
+  int m_4 = 0;
+  mhs_mem[x_11] = 9;
+  int m_5 = 0;
+  mhs_mem[(x_11 + 1)] = x_9;
+  int m_6 = 0;
+  mhs_mem[(x_11 + 2)] = x_10;
+  int m_7 = 0;
+  r_8 = j_1(x_11, m_7); break; }
+  case 1: {
+  int64_t x_12 = mhs_mem[0];
+  mhs_mem[0] = (x_12 + 2);
+  int m_8 = 0;
+  mhs_mem[x_12] = 7;
+  int m_9 = 0;
+  mhs_mem[(x_12 + 1)] = 0;
+  int m_10 = 0;
+  r_8 = j_1(x_12, m_10); break; }
+  default: abort();
+  }
+  return r_8;
+}
+static int64_t t0(int m_11, int64_t p_1) {
+  int64_t x_13 = mhs_mem[(p_1 + 1)];
+  int64_t x_14 = mhs_mem[(p_1 + 2)];
+  int64_t x_15 = (x_13 + 1);
+  int b = (x_15 > x_14);
+  int64_t r_9;
+  switch (b) {
+  case 0: {
+  int64_t x_16 = mhs_mem[0];
+  mhs_mem[0] = (x_16 + 3);
+  int m_13 = 0;
+  mhs_mem[x_16] = 11;
+  int m_14 = 0;
+  mhs_mem[(x_16 + 1)] = x_15;
+  int m_15 = 0;
+  mhs_mem[(x_16 + 2)] = x_14;
+  int m_16 = 0;
+  int64_t x_17 = mhs_mem[0];
+  mhs_mem[0] = (x_17 + 3);
+  int m_17 = 0;
+  mhs_mem[x_17] = 4;
+  int m_18 = 0;
+  mhs_mem[(x_17 + 1)] = x_15;
+  int m_19 = 0;
+  mhs_mem[(x_17 + 2)] = x_16;
+  int m_20 = 0;
+  r_9 = x_17; break; }
+  case 1: {
+  int64_t x_18 = mhs_mem[0];
+  mhs_mem[0] = (x_18 + 1);
+  int m_21 = 0;
+  mhs_mem[x_18] = 6;
+  int m_22 = 0;
+  r_9 = x_18; break; }
+  default: abort();
+  }
+  return r_9;
+}
+static int64_t t1(int m_23, int64_t p_2) {
+  int64_t x_19 = mhs_mem[(p_2 + 1)];
+  int64_t x_20 = (x_19 * x_19);
+  int64_t x_21 = mhs_mem[0];
+  mhs_mem[0] = (x_21 + 2);
+  int m_24 = 0;
+  mhs_mem[x_21] = 2;
+  int m_25 = 0;
+  mhs_mem[(x_21 + 1)] = x_20;
+  int m_26 = 0;
+  return x_21;
+}
+static int64_t j_4(int64_t v_3, int m_28) {
+  int64_t x_25 = mhs_mem[v_3];
+  int64_t r_13;
+  switch ((x_25 == 3)) {
+  case 0: {
+  int64_t x_26 = mhs_mem[0];
+  mhs_mem[0] = (x_26 + 1);
+  int m_30 = 0;
+  mhs_mem[x_26] = 8;
+  int m_31 = 0;
+  r_13 = x_26; break; }
+  case 1: {
+  int64_t x_27 = mhs_mem[(v_3 + 1)];
+  int64_t x_28 = mhs_mem[(v_3 + 2)];
+  int64_t x_29 = mhs_mem[0];
+  mhs_mem[0] = (x_29 + 2);
+  int m_32 = 0;
+  mhs_mem[x_29] = 12;
+  int m_33 = 0;
+  mhs_mem[(x_29 + 1)] = x_27;
+  int m_34 = 0;
+  int64_t x_30 = mhs_mem[0];
+  mhs_mem[0] = (x_30 + 2);
+  int m_35 = 0;
+  mhs_mem[x_30] = 13;
+  int m_36 = 0;
+  mhs_mem[(x_30 + 1)] = x_28;
+  int m_37 = 0;
+  int64_t x_31 = mhs_mem[0];
+  mhs_mem[0] = (x_31 + 3);
+  int m_38 = 0;
+  mhs_mem[x_31] = 10;
+  int m_39 = 0;
+  mhs_mem[(x_31 + 1)] = x_29;
+  int m_40 = 0;
+  mhs_mem[(x_31 + 2)] = x_30;
+  int m_41 = 0;
+  r_13 = x_31; break; }
+  default: abort();
+  }
+  return r_13;
+}
+static int64_t t2(int m_27, int64_t p_3) {
+  int64_t x_22 = mhs_mem[(p_3 + 1)];
+  int64_t x_23 = mhs_mem[x_22];
+  int64_t r_10;
+  switch ((x_23 == 1)) {
+  case 0: {
+  int64_t x1_5 = t0(m_27, x_22);
+  int64_t r_11;
+  int64_t x3_5 = x1_5;
+  int x4_5 = 0;
+  mhs_mem[x_22] = 1;
+  mhs_mem[(x_22 + 1)] = x3_5;
+  r_11 = x3_5;
+  r_10 = r_11; break; }
+  case 1: {
+  r_10 = mhs_mem[(x_22 + 1)]; break; }
+  default: abort();
+  }
+  int64_t x1_6 = r_10;
+  int64_t r_12;
+  int64_t x3_6 = x1_6;
+  int x4_6 = 0;
+  int64_t x_24 = mhs_mem[x3_6];
+  int64_t r_14;
+  switch ((x_24 == 4)) {
+  case 0: {
+  int64_t x_32 = mhs_mem[0];
+  mhs_mem[0] = (x_32 + 1);
+  int m_42 = 0;
+  mhs_mem[x_32] = 5;
+  int m_43 = 0;
+  r_14 = j_4(x_32, m_43); break; }
+  case 1: {
+  int64_t x_33 = mhs_mem[(x3_6 + 1)];
+  int64_t x_34 = mhs_mem[(x3_6 + 2)];
+  int64_t x_35 = mhs_mem[0];
+  mhs_mem[0] = (x_35 + 3);
+  int m_44 = 0;
+  mhs_mem[x_35] = 3;
+  int m_45 = 0;
+  mhs_mem[(x_35 + 1)] = x_33;
+  int m_46 = 0;
+  mhs_mem[(x_35 + 2)] = x_34;
+  int m_47 = 0;
+  r_14 = j_4(x_35, m_47); break; }
+  default: abort();
+  }
+  r_12 = r_14;
+  return r_12;
+}
+static int64_t j_5(int64_t v_7, int m_51) {
+  int64_t x1_7 = f0(m_51, v_7);
+  return x1_7;
+}
+static int64_t j_6(int64_t v_6, int m_50) {
+  int64_t x_37 = mhs_mem[v_6];
+  int64_t r_15;
+  switch ((x_37 == 3)) {
+  case 0: {
+  int64_t x_38 = mhs_mem[0];
+  mhs_mem[0] = (x_38 + 1);
+  int m_52 = 0;
+  mhs_mem[x_38] = 8;
+  int m_53 = 0;
+  r_15 = j_5(x_38, m_53); break; }
+  case 1: {
+  int64_t x_39 = mhs_mem[(v_6 + 1)];
+  int64_t x_40 = mhs_mem[(v_6 + 2)];
+  int64_t x_41 = mhs_mem[0];
+  mhs_mem[0] = (x_41 + 2);
+  int m_54 = 0;
+  mhs_mem[x_41] = 12;
+  int m_55 = 0;
+  mhs_mem[(x_41 + 1)] = x_39;
+  int m_56 = 0;
+  int64_t x_42 = mhs_mem[0];
+  mhs_mem[0] = (x_42 + 2);
+  int m_57 = 0;
+  mhs_mem[x_42] = 13;
+  int m_58 = 0;
+  mhs_mem[(x_42 + 1)] = x_40;
+  int m_59 = 0;
+  int64_t x_43 = mhs_mem[0];
+  mhs_mem[0] = (x_43 + 3);
+  int m_60 = 0;
+  mhs_mem[x_43] = 10;
+  int m_61 = 0;
+  mhs_mem[(x_43 + 1)] = x_41;
+  int m_62 = 0;
+  mhs_mem[(x_43 + 2)] = x_42;
+  int m_63 = 0;
+  r_15 = j_5(x_43, m_63); break; }
+  default: abort();
+  }
+  return r_15;
+}
+static int64_t j_7(int64_t v_5, int m_49) {
+  int64_t x_36 = mhs_mem[v_5];
+  int64_t r_16;
+  switch ((x_36 == 4)) {
+  case 0: {
+  int64_t x_44 = mhs_mem[0];
+  mhs_mem[0] = (x_44 + 1);
+  int m_64 = 0;
+  mhs_mem[x_44] = 5;
+  int m_65 = 0;
+  r_16 = j_6(x_44, m_65); break; }
+  case 1: {
+  int64_t x_45 = mhs_mem[(v_5 + 1)];
+  int64_t x_46 = mhs_mem[(v_5 + 2)];
+  int64_t x_47 = mhs_mem[0];
+  mhs_mem[0] = (x_47 + 3);
+  int m_66 = 0;
+  mhs_mem[x_47] = 3;
+  int m_67 = 0;
+  mhs_mem[(x_47 + 1)] = x_45;
+  int m_68 = 0;
+  mhs_mem[(x_47 + 2)] = x_46;
+  int m_69 = 0;
+  r_16 = j_6(x_47, m_69); break; }
+  default: abort();
+  }
+  return r_16;
+}
+
+int64_t sumSquares(int m, int64_t n) {
+  mhs_mem[0] = 1;
+  int m_48 = 0;
+  int b_1 = (1 > n);
+  int64_t r_17;
+  switch (b_1) {
+  case 0: {
+  int64_t x_48 = mhs_mem[0];
+  mhs_mem[0] = (x_48 + 3);
+  int m_70 = 0;
+  mhs_mem[x_48] = 11;
+  int m_71 = 0;
+  mhs_mem[(x_48 + 1)] = 1;
+  int m_72 = 0;
+  mhs_mem[(x_48 + 2)] = n;
+  int m_73 = 0;
+  int64_t x_49 = mhs_mem[0];
+  mhs_mem[0] = (x_49 + 3);
+  int m_74 = 0;
+  mhs_mem[x_49] = 4;
+  int m_75 = 0;
+  mhs_mem[(x_49 + 1)] = 1;
+  int m_76 = 0;
+  mhs_mem[(x_49 + 2)] = x_48;
+  int m_77 = 0;
+  r_17 = j_7(x_49, m_77); break; }
+  case 1: {
+  int64_t x_50 = mhs_mem[0];
+  mhs_mem[0] = (x_50 + 1);
+  int m_78 = 0;
+  mhs_mem[x_50] = 6;
+  int m_79 = 0;
+  r_17 = j_7(x_50, m_79); break; }
+  default: abort();
+  }
+  int64_t x1_8 = r_17;
+  int64_t r_18;
+  int64_t x3_8 = x1_8;
+  int x4_8 = 0;
+  r_18 = x3_8;
+  return r_18;
+}
+---- reference interpreter
+[(0,0),(1,1),(10,385),(100,338350)]
+==== combinators
+node kinds (tag: kind):
+fields (kind.field: kinds):
+results of thunk code (kind: kinds):
+joins (site: kinds):
+recursive applications (lambda shape: result):
+---- low code
+-- type: Mem -> Int -> Int
+-- data Mem = Mem
+-- data (,) #0 #1 = (,) #0 #1
+\ (m :: Mem) (n :: Int) ->
+  let x1 :: (Int, Mem) = let m_1 :: Mem = poke m[0] 1
+      in let x :: Int = 100 - n
+         in (x, m_1)
+  in case x1 of
+       (x3, x4) -> x3
+---- C
+#include <stdint.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <math.h>
+
+/* the memory of the program (Staged.Low.Mem) */
+#ifndef MHS_MEM_WORDS
+#define MHS_MEM_WORDS (1 << 20)
+#endif
+static int64_t mhs_mem[MHS_MEM_WORDS];
+
+/* Staged.Low.Mem: Mem=0 */
+struct c { int tag; union { struct { void* f0; void* f1; } c; } u; };
+
+
+int64_t combinators(int m, int64_t n) {
+  mhs_mem[0] = 1;
+  int m_1 = 0;
+  int64_t x = (100 - n);
+  int64_t x1 = x;
+  int64_t r_0;
+  int64_t x3 = x1;
+  int x4 = 0;
+  r_0 = x3;
+  return r_0;
+}
+---- reference interpreter
+[(0,100),(7,93)]
+==== church (known at compile time)
+-- type: Mem -> Int
+-- data Mem = Mem
+-- data (,) #0 #1 = (,) #0 #1
+-- data Bool = False | True
+\ (m :: Mem) ->
+  let x1_33 :: (Int, Mem) = letrec
+        f0 :: Mem -> Int -> Int -> (Int, Mem) = \ (m_1 :: Mem) (p :: Int) (p_1 :: Int) ->
+            let x :: Int = peek m_1[p]
+            in case x == 3 of
+                 False -> let x_1 :: Int = peek m_1[p]
+                   in let j_1 :: Int -> Mem -> (Int, Mem) = \ (v_1 :: Int) (m_3 :: Mem) ->
+                            let x_2 :: Int = v_1 + 1
+                            in let x_3 :: Int = x_2 + 1
+                               in let x_4 :: Int = x_3 + 1
+                                  in (x_4, m_3)
+                      in case x_1 == 3 of
+                           False -> let x_5 :: Int = peek m_1[p]
+                             in let j_2 :: Int -> Mem -> (Int, Mem) = \ (v_2 :: Int) (m_4 :: Mem) ->
+                                      let x_6 :: Int = v_2 + 1
+                                      in let x_7 :: Int = x_6 + 1
+                                         in let x_8 :: Int = x_7 + 1
+                                            in j_1 x_8 m_4
+                                in case x_5 == 3 of
+                                     False -> let x_9 :: Int = p_1 + 1
+                                       in let x_10 :: Int = x_9 + 1
+                                          in let x_11 :: Int = x_10 + 1
+                                             in j_2 x_11 m_1
+                                     True -> let x_12 :: Int = peek m_1[p + 1]
+                                       in let x1 :: (Int, Mem) = f0 m_1 x_12 p_1
+                                          in case x1 of
+                                               (x3, x4) -> j_2 x3 x4
+                           True -> let x_13 :: Int = peek m_1[p + 1]
+                             in let x_14 :: Int = peek m_1[x_13]
+                                in case x_14 == 3 of
+                                     False -> let x_15 :: Int = peek m_1[0]
+                                       in let m_6 :: Mem = poke m_1[0] (x_15 + 3)
+                                          in let m_7 :: Mem = poke m_6[x_15] 9
+                                             in let x_16 :: Int = peek m_7[0]
+                                                in let m_8 :: Mem = poke m_7[0] (x_16 + 3)
+                                                   in let m_9 :: Mem = poke m_8[x_16] 6
+                                                      in let m_10 :: Mem = poke m_9[x_16 + 1] p
+                                                         in let m_11 :: Mem = poke m_10[x_16 + 2] p_1
+                                                            in let m_12 :: Mem = poke m_11[x_15 + 1] x_13
+                                                               in let m_13 :: Mem = poke m_12[x_15 + 2] x_16
+                                                                  in let x1_1 :: (Int, Mem) = f2 m_13 x_15
+                                                                     in case x1_1 of
+                                                                          (x3_1, x4_1) -> j_1 x3_1 x4_1
+                                     True -> let x_17 :: Int = peek m_1[x_13 + 1]
+                                       in let x_18 :: Int = peek m_1[0]
+                                          in let m_14 :: Mem = poke m_1[0] (x_18 + 3)
+                                             in let m_15 :: Mem = poke m_14[x_18] 9
+                                                in let x_19 :: Int = peek m_15[0]
+                                                   in let m_16 :: Mem = poke m_15[0] (x_19 + 3)
+                                                      in let m_17 :: Mem = poke m_16[x_19] 6
+                                                         in let m_18 :: Mem = poke m_17[x_19 + 1] p
+                                                            in let m_19 :: Mem = poke m_18[x_19 + 2] p_1
+                                                               in let m_20 :: Mem = poke m_19[x_18 + 1] x_13
+                                                                  in let m_21 :: Mem = poke m_20[x_18 + 2] x_19
+                                                                     in let x1_2 :: (Int, Mem) = f1 m_21 x_17 x_18
+                                                                        in case x1_2 of
+                                                                             (x3_2, x4_2) -> j_1 x3_2 x4_2
+                 True -> let x_20 :: Int = peek m_1[p + 1]
+                   in let x_21 :: Int = peek m_1[x_20]
+                      in case x_21 == 3 of
+                           False -> let x_22 :: Int = peek m_1[0]
+                             in let m_23 :: Mem = poke m_1[0] (x_22 + 3)
+                                in let m_24 :: Mem = poke m_23[x_22] 9
+                                   in let x_23 :: Int = peek m_24[0]
+                                      in let m_25 :: Mem = poke m_24[0] (x_23 + 3)
+                                         in let m_26 :: Mem = poke m_25[x_23] 8
+                                            in let m_27 :: Mem = poke m_26[x_23 + 1] p
+                                               in let m_28 :: Mem = poke m_27[x_23 + 2] p_1
+                                                  in let m_29 :: Mem = poke m_28[x_22 + 1] x_20
+                                                     in let m_30 :: Mem = poke m_29[x_22 + 2] x_23
+                                                        in let x1_3 :: (Int, Mem) = f2 m_30 x_22
+                                                           in x1_3
+                           True -> let x_24 :: Int = peek m_1[x_20 + 1]
+                             in let x_25 :: Int = peek m_1[0]
+                                in let m_31 :: Mem = poke m_1[0] (x_25 + 3)
+                                   in let m_32 :: Mem = poke m_31[x_25] 9
+                                      in let x_26 :: Int = peek m_32[0]
+                                         in let m_33 :: Mem = poke m_32[0] (x_26 + 3)
+                                            in let m_34 :: Mem = poke m_33[x_26] 8
+                                               in let m_35 :: Mem = poke m_34[x_26 + 1] p
+                                                  in let m_36 :: Mem = poke m_35[x_26 + 2] p_1
+                                                     in let m_37 :: Mem = poke m_36[x_25 + 1] x_20
+                                                        in let m_38 :: Mem = poke m_37[x_25 + 2] x_26
+                                                           in let x1_4 :: (Int, Mem) = f1 m_38 x_24 x_25
+                                                              in x1_4
+        f1 :: Mem -> Int -> Int -> (Int, Mem) = \ (m_39 :: Mem) (p_2 :: Int) (p_3 :: Int) ->
+            let x_27 :: Int = peek m_39[p_2]
+            in case x_27 == 3 of
+                 False -> let x_28 :: Int = peek m_39[0]
+                   in let m_41 :: Mem = poke m_39[0] (x_28 + 3)
+                      in let m_42 :: Mem = poke m_41[x_28] 9
+                         in let m_43 :: Mem = poke m_42[x_28 + 1] p_2
+                            in let m_44 :: Mem = poke m_43[x_28 + 2] p_3
+                               in let x1_5 :: (Int, Mem) = f2 m_44 x_28
+                                  in x1_5
+                 True -> let x_29 :: Int = peek m_39[p_2 + 1]
+                   in let x_30 :: Int = peek m_39[0]
+                      in let m_45 :: Mem = poke m_39[0] (x_30 + 3)
+                         in let m_46 :: Mem = poke m_45[x_30] 9
+                            in let m_47 :: Mem = poke m_46[x_30 + 1] p_2
+                               in let m_48 :: Mem = poke m_47[x_30 + 2] p_3
+                                  in let x1_6 :: (Int, Mem) = f1 m_48 x_29 x_30
+                                     in x1_6
+        f2 :: Mem -> Int -> (Int, Mem) = \ (m_49 :: Mem) (p_4 :: Int) ->
+            let x_31 :: Int = peek m_49[p_4]
+            in let x1_8 :: (Int, Mem) = case x_31 == 1 of
+                     False -> let x1_7 :: (Int, Mem) = t4 m_49 p_4
+                       in case x1_7 of
+                            (x3_7, x4_7) -> (x3_7, poke (poke x4_7[p_4] 1)[p_4 + 1] x3_7)
+                     True -> (peek m_49[p_4 + 1], m_49)
+               in case x1_8 of
+                    (x3_8, x4_8) -> let x_32 :: Int = peek x4_8[x3_8 + 1]
+                      in let x_33 :: Int = x_32 + 1
+                         in let x_34 :: Int = x_33 + 1
+                            in let x_35 :: Int = x_34 + 1
+                               in (x_35, x4_8)
+        t0 :: Mem -> Int -> (Int, Mem) = \ (m_50 :: Mem) (p_5 :: Int) ->
+            let x_36 :: Int = peek m_50[p_5 + 1]
+            in let x_37 :: Int = peek m_50[p_5 + 2]
+               in let x_38 :: Int = peek m_50[x_36 + 1]
+                  in let x1_9 :: (Int, Mem) = f0 m_50 x_38 x_37
+                     in case x1_9 of
+                          (x3_9, x4_9) -> let x_39 :: Int = peek x4_9[0]
+                            in let m_51 :: Mem = poke x4_9[0] (x_39 + 2)
+                               in let m_52 :: Mem = poke m_51[x_39] 2
+                                  in let m_53 :: Mem = poke m_52[x_39 + 1] x3_9
+                                     in (x_39, m_53)
+        t1 :: Mem -> Int -> (Int, Mem) = \ (m_54 :: Mem) (p_6 :: Int) ->
+            let x_40 :: Int = peek m_54[p_6 + 1]
+            in let x_41 :: Int = peek m_54[p_6 + 2]
+               in let x_42 :: Int = peek m_54[x_40]
+                  in let j_6 :: Int -> Mem -> (Int, Mem) = \ (v_6 :: Int) (m_55 :: Mem) ->
+                           let x_43 :: Int = peek m_55[0]
+                           in let m_56 :: Mem = poke m_55[0] (x_43 + 2)
+                              in let m_57 :: Mem = poke m_56[x_43] 2
+                                 in let m_58 :: Mem = poke m_57[x_43 + 1] v_6
+                                    in (x_43, m_58)
+                     in case x_42 == 3 of
+                          False -> let x_44 :: Int = x_41 + 1
+                            in let x_45 :: Int = x_44 + 1
+                               in let x_46 :: Int = x_45 + 1
+                                  in j_6 x_46 m_54
+                          True -> let x_47 :: Int = peek m_54[x_40 + 1]
+                            in let x1_10 :: (Int, Mem) = f0 m_54 x_47 x_41
+                               in case x1_10 of
+                                    (x3_10, x4_10) -> j_6 x3_10 x4_10
+        t2 :: Mem -> Int -> (Int, Mem) = \ (m_59 :: Mem) (p_7 :: Int) ->
+            let x_48 :: Int = peek m_59[p_7 + 1]
+            in let x_49 :: Int = peek m_59[p_7 + 2]
+               in let x_50 :: Int = peek m_59[x_48]
+                  in let j_7 :: Int -> Mem -> (Int, Mem) = \ (v_7 :: Int) (m_60 :: Mem) ->
+                           let x_51 :: Int = peek m_60[0]
+                           in let m_61 :: Mem = poke m_60[0] (x_51 + 2)
+                              in let m_62 :: Mem = poke m_61[x_51] 2
+                                 in let m_63 :: Mem = poke m_62[x_51 + 1] v_7
+                                    in (x_51, m_63)
+                     in case x_50 == 3 of
+                          False -> let x_52 :: Int = peek m_59[x_49]
+                            in let x1_16 :: (Int, Mem) = case x_52 == 1 of
+                                     False -> case x_52 == 5 of
+                                         False -> case x_52 == 6 of
+                                             False -> case x_52 == 7 of
+                                                 False -> case x_52 == 8 of
+                                                     False -> let x1_11 :: (Int, Mem) = t4 m_59 x_49
+                                                       in case x1_11 of
+                                                            (x3_11, x4_11) -> (x3_11, poke (poke x4_11[x_49] 1)[x_49 + 1] x3_11)
+                                                     True -> let x1_12 :: (Int, Mem) = t3 m_59 x_49
+                                                       in case x1_12 of
+                                                            (x3_12, x4_12) -> (x3_12, poke (poke x4_12[x_49] 1)[x_49 + 1] x3_12)
+                                                 True -> let x1_13 :: (Int, Mem) = t2 m_59 x_49
+                                                   in case x1_13 of
+                                                        (x3_13, x4_13) -> (x3_13, poke (poke x4_13[x_49] 1)[x_49 + 1] x3_13)
+                                             True -> let x1_14 :: (Int, Mem) = t1 m_59 x_49
+                                               in case x1_14 of
+                                                    (x3_14, x4_14) -> (x3_14, poke (poke x4_14[x_49] 1)[x_49 + 1] x3_14)
+                                         True -> let x1_15 :: (Int, Mem) = t0 m_59 x_49
+                                           in case x1_15 of
+                                                (x3_15, x4_15) -> (x3_15, poke (poke x4_15[x_49] 1)[x_49 + 1] x3_15)
+                                     True -> (peek m_59[x_49 + 1], m_59)
+                               in case x1_16 of
+                                    (x3_16, x4_16) -> let x_53 :: Int = peek x4_16[x3_16 + 1]
+                                      in let x_54 :: Int = x_53 + 1
+                                         in let x_55 :: Int = x_54 + 1
+                                            in let x_56 :: Int = x_55 + 1
+                                               in j_7 x_56 x4_16
+                          True -> let x_57 :: Int = peek m_59[x_48 + 1]
+                            in let x_58 :: Int = peek m_59[x_57]
+                               in case x_58 == 3 of
+                                    False -> let x_59 :: Int = peek m_59[0]
+                                      in let m_65 :: Mem = poke m_59[0] (x_59 + 3)
+                                         in let m_66 :: Mem = poke m_65[x_59] 9
+                                            in let m_67 :: Mem = poke m_66[x_59 + 1] x_57
+                                               in let m_68 :: Mem = poke m_67[x_59 + 2] x_49
+                                                  in let x1_17 :: (Int, Mem) = f2 m_68 x_59
+                                                     in case x1_17 of
+                                                          (x3_17, x4_17) -> j_7 x3_17 x4_17
+                                    True -> let x_60 :: Int = peek m_59[x_57 + 1]
+                                      in let x_61 :: Int = peek m_59[0]
+                                         in let m_69 :: Mem = poke m_59[0] (x_61 + 3)
+                                            in let m_70 :: Mem = poke m_69[x_61] 9
+                                               in let m_71 :: Mem = poke m_70[x_61 + 1] x_57
+                                                  in let m_72 :: Mem = poke m_71[x_61 + 2] x_49
+                                                     in let x1_18 :: (Int, Mem) = f1 m_72 x_60 x_61
+                                                        in case x1_18 of
+                                                             (x3_18, x4_18) -> j_7 x3_18 x4_18
+        t3 :: Mem -> Int -> (Int, Mem) = \ (m_73 :: Mem) (p_8 :: Int) ->
+            let x_62 :: Int = peek m_73[p_8 + 1]
+            in let x_63 :: Int = peek m_73[p_8 + 2]
+               in let x_64 :: Int = peek m_73[x_62]
+                  in let j_9 :: Int -> Mem -> (Int, Mem) = \ (v_9 :: Int) (m_74 :: Mem) ->
+                           let x_65 :: Int = peek m_74[0]
+                           in let m_75 :: Mem = poke m_74[0] (x_65 + 2)
+                              in let m_76 :: Mem = poke m_75[x_65] 2
+                                 in let m_77 :: Mem = poke m_76[x_65 + 1] v_9
+                                    in (x_65, m_77)
+                     in case x_64 == 3 of
+                          False -> let x_66 :: Int = peek m_73[x_62]
+                            in let j_10 :: Int -> Mem -> (Int, Mem) = \ (v_10 :: Int) (m_78 :: Mem) ->
+                                     let x_67 :: Int = v_10 + 1
+                                     in let x_68 :: Int = x_67 + 1
+                                        in let x_69 :: Int = x_68 + 1
+                                           in j_9 x_69 m_78
+                               in case x_66 == 3 of
+                                    False -> let x_70 :: Int = x_63 + 1
+                                      in let x_71 :: Int = x_70 + 1
+                                         in let x_72 :: Int = x_71 + 1
+                                            in j_10 x_72 m_73
+                                    True -> let x_73 :: Int = peek m_73[x_62 + 1]
+                                      in let x1_19 :: (Int, Mem) = f0 m_73 x_73 x_63
+                                         in case x1_19 of
+                                              (x3_19, x4_19) -> j_10 x3_19 x4_19
+                          True -> let x_74 :: Int = peek m_73[x_62 + 1]
+                            in let x_75 :: Int = peek m_73[x_74]
+                               in case x_75 == 3 of
+                                    False -> let x_76 :: Int = peek m_73[0]
+                                      in let m_80 :: Mem = poke m_73[0] (x_76 + 3)
+                                         in let m_81 :: Mem = poke m_80[x_76] 9
+                                            in let x_77 :: Int = peek m_81[0]
+                                               in let m_82 :: Mem = poke m_81[0] (x_77 + 3)
+                                                  in let m_83 :: Mem = poke m_82[x_77] 6
+                                                     in let m_84 :: Mem = poke m_83[x_77 + 1] x_62
+                                                        in let m_85 :: Mem = poke m_84[x_77 + 2] x_63
+                                                           in let m_86 :: Mem = poke m_85[x_76 + 1] x_74
+                                                              in let m_87 :: Mem = poke m_86[x_76 + 2] x_77
+                                                                 in let x1_20 :: (Int, Mem) = f2 m_87 x_76
+                                                                    in case x1_20 of
+                                                                         (x3_20, x4_20) -> j_9 x3_20 x4_20
+                                    True -> let x_78 :: Int = peek m_73[x_74 + 1]
+                                      in let x_79 :: Int = peek m_73[0]
+                                         in let m_88 :: Mem = poke m_73[0] (x_79 + 3)
+                                            in let m_89 :: Mem = poke m_88[x_79] 9
+                                               in let x_80 :: Int = peek m_89[0]
+                                                  in let m_90 :: Mem = poke m_89[0] (x_80 + 3)
+                                                     in let m_91 :: Mem = poke m_90[x_80] 6
+                                                        in let m_92 :: Mem = poke m_91[x_80 + 1] x_62
+                                                           in let m_93 :: Mem = poke m_92[x_80 + 2] x_63
+                                                              in let m_94 :: Mem = poke m_93[x_79 + 1] x_74
+                                                                 in let m_95 :: Mem = poke m_94[x_79 + 2] x_80
+                                                                    in let x1_21 :: (Int, Mem) = f1 m_95 x_78 x_79
+                                                                       in case x1_21 of
+                                                                            (x3_21, x4_21) -> j_9 x3_21 x4_21
+        t4 :: Mem -> Int -> (Int, Mem) = \ (m_96 :: Mem) (p_9 :: Int) ->
+            let x_81 :: Int = peek m_96[p_9 + 1]
+            in let x_82 :: Int = peek m_96[p_9 + 2]
+               in let x_83 :: Int = peek m_96[x_81]
+                  in let j_12 :: Int -> Mem -> (Int, Mem) = \ (v_12 :: Int) (m_97 :: Mem) ->
+                           let x_84 :: Int = peek m_97[0]
+                           in let m_98 :: Mem = poke m_97[0] (x_84 + 2)
+                              in let m_99 :: Mem = poke m_98[x_84] 2
+                                 in let m_100 :: Mem = poke m_99[x_84 + 1] v_12
+                                    in (x_84, m_100)
+                     in case x_83 == 3 of
+                          False -> let x_85 :: Int = peek m_96[x_81]
+                            in let j_13 :: Int -> Mem -> (Int, Mem) = \ (v_13 :: Int) (m_101 :: Mem) ->
+                                     let x_86 :: Int = v_13 + 1
+                                     in let x_87 :: Int = x_86 + 1
+                                        in let x_88 :: Int = x_87 + 1
+                                           in j_12 x_88 m_101
+                               in case x_85 == 3 of
+                                    False -> let x_89 :: Int = peek m_96[x_82]
+                                      in let x1_27 :: (Int, Mem) = case x_89 == 1 of
+                                               False -> case x_89 == 5 of
+                                                   False -> case x_89 == 6 of
+                                                       False -> case x_89 == 7 of
+                                                           False -> case x_89 == 8 of
+                                                               False -> let x1_22 :: (Int, Mem) = t4 m_96 x_82
+                                                                 in case x1_22 of
+                                                                      (x3_22, x4_22) -> (x3_22, poke (poke x4_22[x_82] 1)[x_82 + 1] x3_22)
+                                                               True -> let x1_23 :: (Int, Mem) = t3 m_96 x_82
+                                                                 in case x1_23 of
+                                                                      (x3_23, x4_23) -> (x3_23, poke (poke x4_23[x_82] 1)[x_82 + 1] x3_23)
+                                                           True -> let x1_24 :: (Int, Mem) = t2 m_96 x_82
+                                                             in case x1_24 of
+                                                                  (x3_24, x4_24) -> (x3_24, poke (poke x4_24[x_82] 1)[x_82 + 1] x3_24)
+                                                       True -> let x1_25 :: (Int, Mem) = t1 m_96 x_82
+                                                         in case x1_25 of
+                                                              (x3_25, x4_25) -> (x3_25, poke (poke x4_25[x_82] 1)[x_82 + 1] x3_25)
+                                                   True -> let x1_26 :: (Int, Mem) = t0 m_96 x_82
+                                                     in case x1_26 of
+                                                          (x3_26, x4_26) -> (x3_26, poke (poke x4_26[x_82] 1)[x_82 + 1] x3_26)
+                                               True -> (peek m_96[x_82 + 1], m_96)
+                                         in case x1_27 of
+                                              (x3_27, x4_27) -> let x_90 :: Int = peek x4_27[x3_27 + 1]
+                                                in let x_91 :: Int = x_90 + 1
+                                                   in let x_92 :: Int = x_91 + 1
+                                                      in let x_93 :: Int = x_92 + 1
+                                                         in j_13 x_93 x4_27
+                                    True -> let x_94 :: Int = peek m_96[x_81 + 1]
+                                      in let x_95 :: Int = peek m_96[x_94]
+                                         in case x_95 == 3 of
+                                              False -> let x_96 :: Int = peek m_96[0]
+                                                in let m_103 :: Mem = poke m_96[0] (x_96 + 3)
+                                                   in let m_104 :: Mem = poke m_103[x_96] 9
+                                                      in let m_105 :: Mem = poke m_104[x_96 + 1] x_94
+                                                         in let m_106 :: Mem = poke m_105[x_96 + 2] x_82
+                                                            in let x1_28 :: (Int, Mem) = f2 m_106 x_96
+                                                               in case x1_28 of
+                                                                    (x3_28, x4_28) -> j_13 x3_28 x4_28
+                                              True -> let x_97 :: Int = peek m_96[x_94 + 1]
+                                                in let x_98 :: Int = peek m_96[0]
+                                                   in let m_107 :: Mem = poke m_96[0] (x_98 + 3)
+                                                      in let m_108 :: Mem = poke m_107[x_98] 9
+                                                         in let m_109 :: Mem = poke m_108[x_98 + 1] x_94
+                                                            in let m_110 :: Mem = poke m_109[x_98 + 2] x_82
+                                                               in let x1_29 :: (Int, Mem) = f1 m_110 x_97 x_98
+                                                                  in case x1_29 of
+                                                                       (x3_29, x4_29) -> j_13 x3_29 x4_29
+                          True -> let x_99 :: Int = peek m_96[x_81 + 1]
+                            in let x_100 :: Int = peek m_96[x_99]
+                               in case x_100 == 3 of
+                                    False -> let x_101 :: Int = peek m_96[0]
+                                      in let m_112 :: Mem = poke m_96[0] (x_101 + 3)
+                                         in let m_113 :: Mem = poke m_112[x_101] 9
+                                            in let x_102 :: Int = peek m_113[0]
+                                               in let m_114 :: Mem = poke m_113[0] (x_102 + 3)
+                                                  in let m_115 :: Mem = poke m_114[x_102] 7
+                                                     in let m_116 :: Mem = poke m_115[x_102 + 1] x_81
+                                                        in let m_117 :: Mem = poke m_116[x_102 + 2] x_82
+                                                           in let m_118 :: Mem = poke m_117[x_101 + 1] x_99
+                                                              in let m_119 :: Mem = poke m_118[x_101 + 2] x_102
+                                                                 in let x1_30 :: (Int, Mem) = f2 m_119 x_101
+                                                                    in case x1_30 of
+                                                                         (x3_30, x4_30) -> j_12 x3_30 x4_30
+                                    True -> let x_103 :: Int = peek m_96[x_99 + 1]
+                                      in let x_104 :: Int = peek m_96[0]
+                                         in let m_120 :: Mem = poke m_96[0] (x_104 + 3)
+                                            in let m_121 :: Mem = poke m_120[x_104] 9
+                                               in let x_105 :: Int = peek m_121[0]
+                                                  in let m_122 :: Mem = poke m_121[0] (x_105 + 3)
+                                                     in let m_123 :: Mem = poke m_122[x_105] 7
+                                                        in let m_124 :: Mem = poke m_123[x_105 + 1] x_81
+                                                           in let m_125 :: Mem = poke m_124[x_105 + 2] x_82
+                                                              in let m_126 :: Mem = poke m_125[x_104 + 1] x_99
+                                                                 in let m_127 :: Mem = poke m_126[x_104 + 2] x_105
+                                                                    in let x1_31 :: (Int, Mem) = f1 m_127 x_103 x_104
+                                                                       in case x1_31 of
+                                                                            (x3_31, x4_31) -> j_12 x3_31 x4_31
+      in let m_128 :: Mem = poke m[0] 1
+         in let x_106 :: Int = peek m_128[0]
+            in let m_129 :: Mem = poke m_128[0] (x_106 + 3)
+               in let m_130 :: Mem = poke m_129[x_106] 9
+                  in let x_107 :: Int = peek m_130[0]
+                     in let m_131 :: Mem = poke m_130[0] (x_107 + 1)
+                        in let m_132 :: Mem = poke m_131[x_107] 4
+                           in let x_108 :: Int = peek m_132[0]
+                              in let m_133 :: Mem = poke m_132[0] (x_108 + 3)
+                                 in let m_134 :: Mem = poke m_133[x_108] 9
+                                    in let x_109 :: Int = peek m_134[0]
+                                       in let m_135 :: Mem = poke m_134[0] (x_109 + 2)
+                                          in let m_136 :: Mem = poke m_135[x_109] 3
+                                             in let m_137 :: Mem = poke m_136[x_109 + 1] x_107
+                                                in let x_110 :: Int = peek m_137[0]
+                                                   in let m_138 :: Mem = poke m_137[0] (x_110 + 3)
+                                                      in let m_139 :: Mem = poke m_138[x_110] 5
+                                                         in let x_111 :: Int = peek m_139[0]
+                                                            in let m_140 :: Mem = poke m_139[0] (x_111 + 2)
+                                                               in let m_141 :: Mem = poke m_140[x_111] 3
+                                                                  in let m_142 :: Mem = poke m_141[x_111 + 1] x_109
+                                                                     in let m_143 :: Mem = poke m_142[x_110 + 1] x_111
+                                                                        in let m_144 :: Mem = poke m_143[x_110 + 2] 0
+                                                                           in let m_145 :: Mem = poke m_144[x_108 + 1] x_109
+                                                                              in let m_146 :: Mem = poke m_145[x_108 + 2] x_110
+                                                                                 in let m_147 :: Mem = poke m_146[x_106 + 1] x_107
+                                                                                    in let m_148 :: Mem = poke m_147[x_106 + 2] x_108
+                                                                                       in let x1_32 :: (Int, Mem) = f2 m_148 x_106
+                                                                                          in x1_32
+  in case x1_33 of
+       (x3_33, x4_33) -> x3_33
+54

@@ -354,7 +354,13 @@ etaTo t e =
 --    (a function is never evaluated, the others cannot fail);
 --  * a function with one (unit) parameter that is called once (a join point
 --    of the pattern match compiler) is inlined;
---  * the default alternative of a case that covers all constructors is removed.
+--  * the default alternative of a case that covers all constructors is removed;
+--  * a call of a let bound function that only returns its arguments (a join
+--    point whose code after the join just returns), as they are or as a
+--    tuple, is its arguments; a call of a function that only calls another
+--    with its arguments is a call of the other (a join point can call one
+--    that is now gone: simplify again);
+--  * a case on a tuple whose alternative rebuilds the tuple is the scrutinee.
 simplify :: LowTerm -> LowTerm
 simplify at =
   case at of
@@ -365,6 +371,11 @@ simplify at =
             LVar _ _ -> substVar x e' b'
             _ | countVar x b' == 0 && harmless e' -> b'
             LLam [(_, pt)] body | isUnit pt, countVar x b' == 1, Just b'' <- inlineCall x body b' -> b''
+            LLam [(y, _)] (LVar y' _) | y == y', Just b'' <- replaceCalls x 1 head b' -> simplify b''
+            LLam ys (LCon c ct as) | isTupleName (baseName (conName c)), map (Just . fst) ys == map varName as
+                                   , Just b'' <- replaceCalls x (length ys) (LCon c ct) b' -> simplify b''
+            LLam ys (LApp g@(LVar g' _) as) | g' /= x, map (Just . fst) ys == map varName as
+                                   , Just b'' <- replaceCalls x (length ys) (LApp g) b' -> simplify b''
             _ -> LLet x t e' b'
     LLetRec bs b ->
       let bs' = [ (x, t, simplify e) | (x, t, e) <- bs ]
@@ -376,7 +387,11 @@ simplify at =
     LCase s cons alts d ->
       let alts' = [ (c, xs, simplify b) | (c, xs, b) <- alts ]
           complete = all (\ c -> c `elem` [ c' | (c', _, _) <- alts' ]) cons
-      in  LCase (simplify s) cons alts' (if complete then Nothing else fmap simplify d)
+          s' = simplify s
+      in  case alts' of
+            -- the alternative rebuilds the tuple
+            [(c, xs, LCon c' _ as)] | c == c', isTupleName (baseName (conName c)), map (Just . fst) xs == map varName as -> s'
+            _ -> LCase s' cons alts' (if complete then Nothing else fmap simplify d)
     LCon c t as -> LCon c t (map simplify as)
     _ -> at
   where
@@ -417,6 +432,28 @@ substVar x r = go
         LCase s cons alts d -> LCase (go s) cons [ (c, xs, go b) | (c, xs, b) <- alts ] (fmap go d)
         LCon c t as -> LCon c t (map go as)
         _ -> at
+
+-- The name of a term that is a variable
+varName :: LowTerm -> Maybe String
+varName (LVar v _) = Just v
+varName _ = Nothing
+
+-- Replace the saturated calls of x (n arguments) by f applied to the
+-- arguments; Nothing if x is used otherwise.
+replaceCalls :: String -> Int -> ([LowTerm] -> LowTerm) -> LowTerm -> Maybe LowTerm
+replaceCalls x n f = go
+  where
+    go at =
+      case at of
+        LApp (LVar y _) as | x == y, length as == n -> f <$> mapM go as
+        LVar y _ | x == y -> Nothing
+        LApp g as -> LApp <$> go g <*> mapM go as
+        LLam xs b -> LLam xs <$> go b
+        LLet y t e b -> LLet y t <$> go e <*> go b
+        LLetRec bs b -> LLetRec <$> mapM (\ (y, t, e) -> (,,) y t <$> go e) bs <*> go b
+        LCase s cons alts d -> LCase <$> go s <*> pure cons <*> mapM (\ (c, xs, b) -> (,,) c xs <$> go b) alts <*> maybe (pure Nothing) (fmap Just . go) d
+        LCon c t as -> LCon c t <$> mapM go as
+        _ -> Just at
 
 -- Replace the (only) call  x arg  by the body of x.
 inlineCall :: String -> LowTerm -> LowTerm -> Maybe LowTerm
