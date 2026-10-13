@@ -8,7 +8,7 @@ import Staged.Low.JS(toJS)
 
 sumSq :: Low (Int -> Int)
 sumSq = \ n -> runGen $ do
-          go <- genRec $ \ go -> \ i acc -> if i > n then acc else go (i + 1) (acc + i * i)
+          go <- genRecNamed "go" $ \ go -> \ i acc -> if i > n then acc else go (i + 1) (acc + i * i)
           return (go 1 0)
 
 data Shape = Circle Double | Rect Double Double

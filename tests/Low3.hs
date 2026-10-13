@@ -53,7 +53,7 @@ zipWithP f (Pull s1 st1) (Pull s2 st2) = Pull [| (~s1, ~s2) |] $ \ s -> Gen $ \ 
 -- The consumer: a loop, a recursive low function of the accumulator and the state.
 foldlP :: LowRep b => (Low b -> a -> Low b) -> Low b -> Pull a -> Low b
 foldlP f z (Pull s0 step) = runGen $ do
-  loop <- genRec $ \ loop -> [| \ acc s -> ~(unG (step [| s |]) $ \ st -> case st of
+  loop <- genRecNamed "loop" $ \ loop -> [| \ acc s -> ~(unG (step [| s |]) $ \ st -> case st of
                                   Stop -> [| acc |]
                                   Skip s' -> [| ~loop acc ~s' |]
                                   Yield a s' -> [| ~loop ~(f [| acc |] a) ~s' |]) |]

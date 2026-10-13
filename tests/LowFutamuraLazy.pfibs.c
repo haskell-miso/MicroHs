@@ -21,60 +21,60 @@ static RV *C_RNil(void) { RV *p = malloc(sizeof *p); p->tag = 1; return p; }
 static RV *C_RCons(int64_t a0, int64_t a1) { RV *p = malloc(sizeof *p); p->tag = 2; p->u.RCons.f0 = a0; p->u.RCons.f1 = a1; return p; }
 static Cell *heap[1 << 20]; static int64_t hp;
 static int64_t alloc(Cell *c) { heap[hp] = c; return hp++; }
-static RV * x_2(int64_t c_1, int64_t a_2, Ints * xs);
-static RV * j(int64_t a0_33, int64_t x4_16, RV * v) {
-  if (v->tag == 1) return C_RNil();
-  int64_t a0_37 = alloc(C_Thunk(3, C_ICons(v->u.RCons.f0, C_ICons(a0_33, C_INil()))));
-  int64_t a0_39 = alloc(C_Thunk(4, C_ICons(v->u.RCons.f1, C_ICons(x4_16, C_INil()))));
-  return C_RCons(a0_37, a0_39);
+static RV * rt(int64_t c_2, int64_t a_2, Ints * xs);
+static RV * j(int64_t h_6, int64_t t_2, RV * v_5) {
+  if (v_5->tag == 1) return C_RNil();
+  int64_t next_2 = alloc(C_Thunk(3, C_ICons(v_5->u.RCons.f0, C_ICons(h_6, C_INil()))));
+  int64_t next_3 = alloc(C_Thunk(4, C_ICons(v_5->u.RCons.f1, C_ICons(t_2, C_INil()))));
+  return C_RCons(next_2, next_3);
 }
-static RV * x_2(int64_t c_1, int64_t a_2, Ints * xs) {
-  if ((c_1 == 0)) {
+static RV * rt(int64_t c_2, int64_t a_2, Ints * xs) {
+  if ((c_2 == 0)) {
     Cell * x1_31 = heap[a_2];
     if (x1_31->tag == 1) return x1_31->u.Done.f0;
-    RV * x1_32 = x_2((x1_31->u.Thunk.f0 + 1), 0, x1_31->u.Thunk.f1);
+    RV * x1_32 = rt((x1_31->u.Thunk.f0 + 1), 0, x1_31->u.Thunk.f1);
     heap[a_2] = C_Done(x1_32);
     return x1_32;
   } else {
-    int64_t d = (c_1 - 1);
+    int64_t d = (c_2 - 1);
     if ((d == 0)) {
-      int64_t a0_53 = alloc(C_Done(C_RInt(0)));
-      int64_t a0_55 = alloc(C_Thunk(1, C_ICons(xs->u.ICons.f0, C_INil())));
-      return C_RCons(a0_53, a0_55);
+      int64_t next_6 = alloc(C_Done(C_RInt(0)));
+      int64_t next_7 = alloc(C_Thunk(1, C_ICons(xs->u.ICons.f0, C_INil())));
+      return C_RCons(next_6, next_7);
     } else if ((d == 1)) {
-      int64_t a0_47 = alloc(C_Done(C_RInt(1)));
-      int64_t a0_49 = alloc(C_Thunk(2, C_ICons(xs->u.ICons.f0, C_INil())));
-      return C_RCons(a0_47, a0_49);
+      int64_t next_4 = alloc(C_Done(C_RInt(1)));
+      int64_t next_5 = alloc(C_Thunk(2, C_ICons(xs->u.ICons.f0, C_INil())));
+      return C_RCons(next_4, next_5);
     } else if ((d == 2)) {
-      RV * x1_17 = x_2(0, xs->u.ICons.f0, C_INil());
+      RV * x1_17 = rt(0, xs->u.ICons.f0, C_INil());
       if (x1_17->tag == 1) return C_RNil();
-      RV * x1_23 = x_2(0, x1_17->u.RCons.f1, C_INil());
+      RV * x1_23 = rt(0, x1_17->u.RCons.f1, C_INil());
       return j(x1_17->u.RCons.f0, x1_17->u.RCons.f1, x1_23);
     } else if ((d == 3)) {
       Ints * s0 = xs->u.ICons.f1;
-      RV * x1_12 = x_2(0, s0->u.ICons.f0, C_INil());
-      RV * x1_13 = x_2(0, xs->u.ICons.f0, C_INil());
+      RV * x1_12 = rt(0, s0->u.ICons.f0, C_INil());
+      RV * x1_13 = rt(0, xs->u.ICons.f0, C_INil());
       return C_RInt((x1_12->u.RInt.f0 + x1_13->u.RInt.f0));
     } else {
       Ints * s1 = xs->u.ICons.f1;
-      RV * x1_4 = x_2(0, s1->u.ICons.f0, C_INil());
+      RV * x1_4 = rt(0, s1->u.ICons.f0, C_INil());
       if (x1_4->tag == 1) return C_RNil();
-      RV * x1_6 = x_2(0, xs->u.ICons.f0, C_INil());
+      RV * x1_6 = rt(0, xs->u.ICons.f0, C_INil());
       if (x1_6->tag == 1) return C_RNil();
-      int64_t a0_13 = alloc(C_Thunk(3, C_ICons(x1_6->u.RCons.f0, C_ICons(x1_4->u.RCons.f0, C_INil()))));
-      int64_t a0_15 = alloc(C_Thunk(4, C_ICons(x1_6->u.RCons.f1, C_ICons(x1_4->u.RCons.f1, C_INil()))));
-      return C_RCons(a0_13, a0_15);
+      int64_t next = alloc(C_Thunk(3, C_ICons(x1_6->u.RCons.f0, C_ICons(x1_4->u.RCons.f0, C_INil()))));
+      int64_t next_1 = alloc(C_Thunk(4, C_ICons(x1_6->u.RCons.f1, C_ICons(x1_4->u.RCons.f1, C_INil()))));
+      return C_RCons(next, next_1);
     }
   }
 }
 static RV * f(int64_t a_3, int64_t b);
 static RV * f(int64_t a_3, int64_t b) {
   if ((b == 0)) {
-    RV * x1_38 = x_2(0, a_3, C_INil());
+    RV * x1_38 = rt(0, a_3, C_INil());
     if (x1_38->tag == 1) return C_RInt(0);
-    return x_2(0, x1_38->u.RCons.f0, C_INil());
+    return rt(0, x1_38->u.RCons.f0, C_INil());
   } else {
-    RV * x1_36 = x_2(0, a_3, C_INil());
+    RV * x1_36 = rt(0, a_3, C_INil());
     if (x1_36->tag == 1) return C_RInt(0);
     return f(x1_36->u.RCons.f1, (b - 1));
   }
@@ -82,8 +82,8 @@ static RV * f(int64_t a_3, int64_t b) {
 int64_t pfibs(int64_t n) {
   RV * x1_40;
   hp = 1;
-  int64_t a0_58 = alloc(C_Done(C_RNil()));
-  heap[a0_58] = C_Thunk(0, C_ICons(a0_58, C_INil()));
-  x1_40 = f(a0_58, n);
+  int64_t next_8 = alloc(C_Done(C_RNil()));
+  heap[next_8] = C_Thunk(0, C_ICons(next_8, C_INil()));
+  x1_40 = f(next_8, n);
   return x1_40->u.RInt.f0;
 }

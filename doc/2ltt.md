@@ -266,6 +266,14 @@ code), so only use it at the end of a generator.
 `genRec` (a recursive definition) and `genLet`, and `lowInt`, `lowDouble`,
 `lowChar`, `lowString`, `lowBool`, ... for compile time values.
 
+The generated code keeps the names of the source: lambda and let binders,
+and the variables of constructor patterns, keep their names (with a `_1`,
+`_2`, ... suffix when a name is used again).  A variable made by the meta
+code with `gen`, `genRec`, or `genLet` is named `x`; `genNamed`,
+`genRecNamed`, and `genLetNamed` take the name to use instead, e.g.
+`go <- genRecNamed "go" $ \ go -> ...`.  The temporaries of the C and
+JavaScript backends never clash with these names.
+
 ### Examples
 
 `tests/Low1.hs` (basics), `tests/Low2.hs` (reflection, C and JavaScript

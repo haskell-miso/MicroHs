@@ -769,18 +769,18 @@ compileFun t =
       items = analyse lt tbl
       cs = codes items
   in  [| \ n -> ~(runGen $ do
-          fetch <- genRec $ \ fetch -> [| \ h a ->
+          fetch <- genRecNamed "fetch" $ \ fetch -> [| \ h a ->
                      case h of
                        Node l c r -> if a == 1 then c
                                      else if a - 2 * (a `quot` 2) == 0 then ~fetch l (a `quot` 2)
                                      else ~fetch r (a `quot` 2) |]
-          store <- genRec $ \ store -> [| \ h a c ->
+          store <- genRecNamed "store" $ \ store -> [| \ h a c ->
                      case h of
                        Empty -> Node Empty c Empty
                        Node l c0 r -> if a == 1 then Node l c r
                                       else if a - 2 * (a `quot` 2) == 0 then Node (~store l (a `quot` 2) c) c0 r
                                       else Node l c0 (~store r (a `quot` 2) c) |]
-          rt <- genRec $ \ rt -> [| \ c a xs st ->
+          rt <- genRecNamed "rt" $ \ rt -> [| \ c a xs st ->
                      if c == 0 then
                        case st of
                          St _ h -> case ~fetch h a of

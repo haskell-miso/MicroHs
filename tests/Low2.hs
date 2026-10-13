@@ -10,7 +10,7 @@ import Staged.Low.JS(toJS)
 -- The sum of the squares of 1 .. n, as a loop.
 sumSq :: Low (Int -> Int)
 sumSq = [| \ n -> ~(runGen $ do
-            go <- genRec $ \ go -> [| \ i acc -> if i > n then acc else ~go (i + 1) (acc + i * i) |]
+            go <- genRecNamed "go" $ \ go -> [| \ i acc -> if i > n then acc else ~go (i + 1) (acc + i * i) |]
             return [| ~go 1 0 |]) |]
 
 -- A function on a user defined data type, with a local helper function

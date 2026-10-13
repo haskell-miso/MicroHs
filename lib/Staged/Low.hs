@@ -29,9 +29,9 @@ module Staged.Low(
   Low, LowRep,
   LowTy(..), LowDecl(..), LowConDecl(..), LowCon(..), LowLit(..),
   LowTerm(..), LowProg(..),
-  reflect, typeOf, arity, resultType, conFieldTypes, baseName, freeVars,
+  reflect, typeOf, arity, resultType, conFieldTypes, baseName, freeVars, varNames,
   lowPretty, lowPrettyTerm,
-  Gen(..), runGen, gen, genRec, genLet,
+  Gen(..), runGen, gen, genRec, genLet, genNamed, genRecNamed, genLetNamed,
   lowInt, lowWord, lowDouble, lowFloat, lowChar, lowString, lowBool,
   ) where
 import Prelude
@@ -124,6 +124,20 @@ baseName s =
   case break (== '.') s of
     (m, '.' : r) | not (null m) && all (\ c -> c /= '(' && c /= '[') m && not (null r) -> baseName r
     _ -> s
+
+-- All the variable names of a term (bound and free), for code generators
+-- that make up names of their own.
+varNames :: LowTerm -> [String]
+varNames at =
+  case at of
+    LVar x _ -> [x]
+    LApp f as -> concatMap varNames (f : as)
+    LLam xs b -> map fst xs ++ varNames b
+    LLet x _ e b -> x : varNames e ++ varNames b
+    LLetRec bs b -> concatMap (\ (x, _, e) -> x : varNames e) bs ++ varNames b
+    LCase s _ alts d -> varNames s ++ concatMap (\ (_, xs, b) -> map fst xs ++ varNames b) alts ++ maybe [] varNames d
+    LCon _ _ as -> concatMap varNames as
+    _ -> []
 
 -- The free variables of a term.
 freeVars :: LowTerm -> [(String, LowTy)]
@@ -563,6 +577,25 @@ genRec f = Gen $ \ k -> [| let x = ~(f [| x |]) in ~(k [| x |]) |]
 
 genLet :: forall a b . LowRep a => Low a -> (Low a -> Low b) -> Low b
 genLet c f = [| let x = ~c in ~(f [| x |]) |]
+
+-- The same, but the variable gets the given name in the generated code
+-- (made unique if needed), so it can be recognized there.
+genNamed :: forall a . LowRep a => String -> Low a -> Gen (Low a)
+genNamed n c = Gen $ \ k -> named n [| let x = ~c in ~(k [| x |]) |]
+
+genRecNamed :: forall a . LowRep a => String -> (Low a -> Low a) -> Gen (Low a)
+genRecNamed n f = Gen $ \ k -> named n [| let x = ~(f [| x |]) in ~(k [| x |]) |]
+
+genLetNamed :: forall a b . LowRep a => String -> Low a -> (Low a -> Low b) -> Low b
+genLetNamed n c f = named n [| let x = ~c in ~(f [| x |]) |]
+
+-- Rename the variable bound by a let.
+named :: forall a . String -> Low a -> Low a
+named n c =
+  case fromLow c of
+    HLet _ t e b -> toLow (HLet n t e b)
+    HLetRec [(_, t)] f -> toLow (HLetRec [(n, t)] f)
+    _ -> c
 
 -----------------------------------------------------------------------
 -- Compile time values as low code.

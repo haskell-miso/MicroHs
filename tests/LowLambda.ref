@@ -18,68 +18,68 @@
   in letrec
        look :: Env -> Int -> Int = \ (env :: Env) (n :: Int) ->
            case env of
-             Bind x3 x4 -> case n == 0 of
-                 False -> look x4 (n - 1)
-                 True -> x3
+             Bind a r -> case n == 0 of
+                 False -> look r (n - 1)
+                 True -> a
              _ -> fail "\"./LowLambda.hs\",64:25"
-     in let half :: Int -> Int = \ (a :: Int) ->
-              a `quot` 2
-        in let isEven :: Int -> Bool = \ (a_1 :: Int) ->
-                 (a_1 - (2 * half a_1)) == 0
+     in let half :: Int -> Int = \ (a_1 :: Int) ->
+              a_1 `quot` 2
+        in let isEven :: Int -> Bool = \ (a_2 :: Int) ->
+                 (a_2 - (2 * half a_2)) == 0
            in letrec
-                store :: Heap -> Int -> Cell -> Heap = \ (h :: Heap) (a_2 :: Int) (c :: Cell) ->
+                store :: Heap -> Int -> Cell -> Heap = \ (h :: Heap) (a_3 :: Int) (c :: Cell) ->
                     case h of
                       Empty -> Node Empty c Empty
-                      Node x3_1 x4_1 x5 -> case a_2 == 1 of
-                          False -> case isEven a_2 of
-                              False -> Node x3_1 x4_1 (store x5 (half a_2) c)
-                              True -> Node (store x3_1 (half a_2) c) x4_1 x5
-                          True -> Node x3_1 c x5
+                      Node l c0 r_1 -> case a_3 == 1 of
+                          False -> case isEven a_3 of
+                              False -> Node l c0 (store r_1 (half a_3) c)
+                              True -> Node (store l (half a_3) c) c0 r_1
+                          True -> Node l c r_1
               in letrec
-                   fetch :: Heap -> Int -> Cell = \ (h_1 :: Heap) (a_3 :: Int) ->
+                   fetch :: Heap -> Int -> Cell = \ (h_1 :: Heap) (a_4 :: Int) ->
                        case h_1 of
-                         Node x3_2 x4_2 x5_1 -> case a_3 == 1 of
-                             False -> case isEven a_3 of
-                                 False -> fetch x5_1 (half a_3)
-                                 True -> fetch x3_2 (half a_3)
-                             True -> x4_2
+                         Node l_1 c_1 r_2 -> case a_4 == 1 of
+                             False -> case isEven a_4 of
+                                 False -> fetch r_2 (half a_4)
+                                 True -> fetch l_1 (half a_4)
+                             True -> c_1
                          _ -> fail "\"./LowLambda.hs\",56:24"
                  in letrec
                       ev :: St -> Env -> Term -> Res = \ (st :: St) (env_1 :: Env) (t :: Term) ->
                           case st of
-                            St x3_3 x4_3 x5_2 -> let st0 :: St = St x3_3 x4_3 (x5_2 + 1)
+                            St next h_2 steps -> let st0 :: St = St next h_2 (steps + 1)
                               in case t of
-                                   Var a4 -> let a_4 :: Int = look env_1 a4
-                                     in let x1_6 :: Cell = fetch x4_3 a_4
+                                   Var n_1 -> let a_5 :: Int = look env_1 n_1
+                                     in let x1_6 :: Cell = fetch h_2 a_5
                                         in case x1_6 of
-                                             Done a0 -> Res a0 st0
-                                             Thunk a5 x6 -> let x1_7 :: Res = ev st0 a5 x6
+                                             Done v -> Res v st0
+                                             Thunk tenv tt -> let x1_7 :: Res = ev st0 tenv tt
                                                in case x1_7 of
-                                                    Res a3 a4_1 -> case a4_1 of
-                                                        St a0_1 a1 a2 -> Res a3 (St a0_1 (store a1 a_4 (Done a3)) a2)
-                                   Lam a0_2 -> Res (VClo env_1 a0_2) st0
-                                   App x7 x8 -> let x1_9 :: Res = ev st0 env_1 x7
+                                                    Res v_1 st1 -> case st1 of
+                                                        St next1 h1 steps1 -> Res v_1 (St next1 (store h1 a_5 (Done v_1)) steps1)
+                                   Lam b -> Res (VClo env_1 b) st0
+                                   App f x_1 -> let x1_9 :: Res = ev st0 env_1 f
                                      in case x1_9 of
-                                          Res a4_2 a5_1 -> case a4_2 of
-                                              VClo a2_1 a3_1 -> case a5_1 of
-                                                  St a0_3 a1_1 a4_3 -> ev (St (a0_3 + 1) (store a1_1 a0_3 (Thunk env_1 x8)) a4_3) (Bind a0_3 a2_1) a3_1
+                                          Res fv st1_1 -> case fv of
+                                              VClo cenv b_1 -> case st1_1 of
+                                                  St next1_1 h1_1 steps1_1 -> ev (St (next1_1 + 1) (store h1_1 next1_1 (Thunk env_1 x_1)) steps1_1) (Bind next1_1 cenv) b_1
                                               _ -> fail "\"./LowLambda.hs\",89:26"
-                                   Lit x11 -> Res (VInt x11) st0
-                                   Prim x13 x14 x15 -> let x1_12 :: Res = ev st0 env_1 x14
+                                   Lit n_2 -> Res (VInt n_2) st0
+                                   Prim o_1 x_2 y_1 -> let x1_12 :: Res = ev st0 env_1 x_2
                                      in case x1_12 of
-                                          Res a4_4 a5_2 -> case a4_4 of
-                                              VInt a2_2 -> let x1_14 :: Res = ev a5_2 env_1 x15
+                                          Res vx st1_2 -> case vx of
+                                              VInt i -> let x1_14 :: Res = ev st1_2 env_1 y_1
                                                 in case x1_14 of
-                                                     Res a1_2 a3_2 -> case a1_2 of
-                                                         VInt a0_4 -> Res (VInt (prim x13 a2_2 a0_4)) a3_2
+                                                     Res vy st2 -> case vy of
+                                                         VInt j -> Res (VInt (prim o_1 i j)) st2
                                                          _ -> fail "\"./LowLambda.hs\",102:34"
                                               _ -> fail "\"./LowLambda.hs\",98:26"
-                                   If0 x19 x20 x21 -> let x1_16 :: Res = ev st0 env_1 x19
+                                   If0 c_2 x_3 y_2 -> let x1_16 :: Res = ev st0 env_1 c_2
                                      in case x1_16 of
-                                          Res a1_3 a2_3 -> case a1_3 of
-                                              VInt a0_5 -> case a0_5 == 0 of
-                                                  False -> ev a2_3 env_1 x21
-                                                  True -> ev a2_3 env_1 x20
+                                          Res vc st1_3 -> case vc of
+                                              VInt i_1 -> case i_1 == 0 of
+                                                  False -> ev st1_3 env_1 y_2
+                                                  True -> ev st1_3 env_1 x_3
                                               _ -> fail "\"./LowLambda.hs\",107:26"
                     in ev (St 1 Empty 0) Nil t0
 ---- eval, C
@@ -113,348 +113,348 @@ static int64_t prim(int o, int64_t x, int64_t y) {
 }
 static int64_t look(struct Env* env, int64_t n);
 static int64_t look(struct Env* env, int64_t n) {
-  int64_t r_1;
+  int64_t r_3;
   switch (env->tag) {
   case 1: {
-  int64_t x3 = env->u.Bind.f0;
-  struct Env* x4 = env->u.Bind.f1;
-  int64_t r_2;
+  int64_t a = env->u.Bind.f0;
+  struct Env* r = env->u.Bind.f1;
+  int64_t r_4;
   switch ((n == 0)) {
   case 0: {
-  r_2 = look(x4, (n - 1)); break; }
+  r_4 = look(r, (n - 1)); break; }
   case 1: {
-  r_2 = x3; break; }
+  r_4 = a; break; }
   default: abort();
   }
-  r_1 = r_2; break; }
+  r_3 = r_4; break; }
   default: {
   fprintf(stderr, "%s\n", "\"./LowLambda.hs\",64:25"); abort();
-  r_1 = 0; break; }
-  }
-  return r_1;
-}
-static int64_t half(int64_t a) {
-  return (a / 2);
-}
-static int isEven(int64_t a_1) {
-  return ((a_1 - (2 * half(a_1))) == 0);
-}
-static struct Heap* store(struct Heap* h, int64_t a_2, struct Cell* c);
-static struct Heap* store(struct Heap* h, int64_t a_2, struct Cell* c) {
-  struct Heap* r_3;
-  switch (h->tag) {
-  case 0: {
-  struct Heap* c_4 = malloc(sizeof(struct Heap));
-  c_4->tag = 0;
-  struct Heap* c_5 = malloc(sizeof(struct Heap));
-  c_5->tag = 0;
-  struct Heap* c_6 = malloc(sizeof(struct Heap));
-  c_6->tag = 1;
-  c_6->u.Node.f0 = c_4;
-  c_6->u.Node.f1 = c;
-  c_6->u.Node.f2 = c_5;
-  r_3 = c_6; break; }
-  case 1: {
-  struct Heap* x3_1 = h->u.Node.f0;
-  struct Cell* x4_1 = h->u.Node.f1;
-  struct Heap* x5 = h->u.Node.f2;
-  struct Heap* r_7;
-  switch ((a_2 == 1)) {
-  case 0: {
-  struct Heap* r_8;
-  switch (isEven(a_2)) {
-  case 0: {
-  struct Heap* c_9 = malloc(sizeof(struct Heap));
-  c_9->tag = 1;
-  c_9->u.Node.f0 = x3_1;
-  c_9->u.Node.f1 = x4_1;
-  c_9->u.Node.f2 = store(x5, half(a_2), c);
-  r_8 = c_9; break; }
-  case 1: {
-  struct Heap* c_10 = malloc(sizeof(struct Heap));
-  c_10->tag = 1;
-  c_10->u.Node.f0 = store(x3_1, half(a_2), c);
-  c_10->u.Node.f1 = x4_1;
-  c_10->u.Node.f2 = x5;
-  r_8 = c_10; break; }
-  default: abort();
-  }
-  r_7 = r_8; break; }
-  case 1: {
-  struct Heap* c_11 = malloc(sizeof(struct Heap));
-  c_11->tag = 1;
-  c_11->u.Node.f0 = x3_1;
-  c_11->u.Node.f1 = c;
-  c_11->u.Node.f2 = x5;
-  r_7 = c_11; break; }
-  default: abort();
-  }
-  r_3 = r_7; break; }
-  default: abort();
+  r_3 = 0; break; }
   }
   return r_3;
 }
-static struct Cell* fetch(struct Heap* h_1, int64_t a_3);
-static struct Cell* fetch(struct Heap* h_1, int64_t a_3) {
-  struct Cell* r_12;
-  switch (h_1->tag) {
+static int64_t half(int64_t a_1) {
+  return (a_1 / 2);
+}
+static int isEven(int64_t a_2) {
+  return ((a_2 - (2 * half(a_2))) == 0);
+}
+static struct Heap* store(struct Heap* h, int64_t a_3, struct Cell* c);
+static struct Heap* store(struct Heap* h, int64_t a_3, struct Cell* c) {
+  struct Heap* r_5;
+  switch (h->tag) {
+  case 0: {
+  struct Heap* c_6 = malloc(sizeof(struct Heap));
+  c_6->tag = 0;
+  struct Heap* c_7 = malloc(sizeof(struct Heap));
+  c_7->tag = 0;
+  struct Heap* c_8 = malloc(sizeof(struct Heap));
+  c_8->tag = 1;
+  c_8->u.Node.f0 = c_6;
+  c_8->u.Node.f1 = c;
+  c_8->u.Node.f2 = c_7;
+  r_5 = c_8; break; }
   case 1: {
-  struct Heap* x3_2 = h_1->u.Node.f0;
-  struct Cell* x4_2 = h_1->u.Node.f1;
-  struct Heap* x5_1 = h_1->u.Node.f2;
-  struct Cell* r_13;
+  struct Heap* l = h->u.Node.f0;
+  struct Cell* c0 = h->u.Node.f1;
+  struct Heap* r_1 = h->u.Node.f2;
+  struct Heap* r_9;
   switch ((a_3 == 1)) {
   case 0: {
-  struct Cell* r_14;
+  struct Heap* r_10;
   switch (isEven(a_3)) {
   case 0: {
-  r_14 = fetch(x5_1, half(a_3)); break; }
+  struct Heap* c_11 = malloc(sizeof(struct Heap));
+  c_11->tag = 1;
+  c_11->u.Node.f0 = l;
+  c_11->u.Node.f1 = c0;
+  c_11->u.Node.f2 = store(r_1, half(a_3), c);
+  r_10 = c_11; break; }
   case 1: {
-  r_14 = fetch(x3_2, half(a_3)); break; }
+  struct Heap* c_12 = malloc(sizeof(struct Heap));
+  c_12->tag = 1;
+  c_12->u.Node.f0 = store(l, half(a_3), c);
+  c_12->u.Node.f1 = c0;
+  c_12->u.Node.f2 = r_1;
+  r_10 = c_12; break; }
   default: abort();
   }
-  r_13 = r_14; break; }
+  r_9 = r_10; break; }
   case 1: {
-  r_13 = x4_2; break; }
+  struct Heap* c_13 = malloc(sizeof(struct Heap));
+  c_13->tag = 1;
+  c_13->u.Node.f0 = l;
+  c_13->u.Node.f1 = c;
+  c_13->u.Node.f2 = r_1;
+  r_9 = c_13; break; }
   default: abort();
   }
-  r_12 = r_13; break; }
+  r_5 = r_9; break; }
+  default: abort();
+  }
+  return r_5;
+}
+static struct Cell* fetch(struct Heap* h_1, int64_t a_4);
+static struct Cell* fetch(struct Heap* h_1, int64_t a_4) {
+  struct Cell* r_14;
+  switch (h_1->tag) {
+  case 1: {
+  struct Heap* l_1 = h_1->u.Node.f0;
+  struct Cell* c_1 = h_1->u.Node.f1;
+  struct Heap* r_2 = h_1->u.Node.f2;
+  struct Cell* r_15;
+  switch ((a_4 == 1)) {
+  case 0: {
+  struct Cell* r_16;
+  switch (isEven(a_4)) {
+  case 0: {
+  r_16 = fetch(r_2, half(a_4)); break; }
+  case 1: {
+  r_16 = fetch(l_1, half(a_4)); break; }
+  default: abort();
+  }
+  r_15 = r_16; break; }
+  case 1: {
+  r_15 = c_1; break; }
+  default: abort();
+  }
+  r_14 = r_15; break; }
   default: {
   fprintf(stderr, "%s\n", "\"./LowLambda.hs\",56:24"); abort();
-  r_12 = 0; break; }
+  r_14 = 0; break; }
   }
-  return r_12;
+  return r_14;
 }
 static struct Res* ev(struct St* st, struct Env* env_1, struct Term* t);
 static struct Res* ev(struct St* st, struct Env* env_1, struct Term* t) {
-  struct Res* r_15;
+  struct Res* r_17;
   switch (st->tag) {
   case 0: {
-  int64_t x3_3 = st->u.St.f0;
-  struct Heap* x4_3 = st->u.St.f1;
-  int64_t x5_2 = st->u.St.f2;
-  struct St* c_16 = malloc(sizeof(struct St));
-  c_16->tag = 0;
-  c_16->u.St.f0 = x3_3;
-  c_16->u.St.f1 = x4_3;
-  c_16->u.St.f2 = (x5_2 + 1);
-  struct St* st0 = c_16;
-  struct Res* r_17;
+  int64_t next = st->u.St.f0;
+  struct Heap* h_2 = st->u.St.f1;
+  int64_t steps = st->u.St.f2;
+  struct St* c_18 = malloc(sizeof(struct St));
+  c_18->tag = 0;
+  c_18->u.St.f0 = next;
+  c_18->u.St.f1 = h_2;
+  c_18->u.St.f2 = (steps + 1);
+  struct St* st0 = c_18;
+  struct Res* r_19;
   switch (t->tag) {
   case 0: {
-  int64_t a4 = t->u.Var.f0;
-  int64_t a_4 = look(env_1, a4);
-  struct Cell* x1_6 = fetch(x4_3, a_4);
-  struct Res* r_18;
+  int64_t n_1 = t->u.Var.f0;
+  int64_t a_5 = look(env_1, n_1);
+  struct Cell* x1_6 = fetch(h_2, a_5);
+  struct Res* r_20;
   switch (x1_6->tag) {
   case 1: {
-  struct Val* a0 = x1_6->u.Done.f0;
-  struct Res* c_19 = malloc(sizeof(struct Res));
-  c_19->tag = 0;
-  c_19->u.Res.f0 = a0;
-  c_19->u.Res.f1 = st0;
-  r_18 = c_19; break; }
+  struct Val* v = x1_6->u.Done.f0;
+  struct Res* c_21 = malloc(sizeof(struct Res));
+  c_21->tag = 0;
+  c_21->u.Res.f0 = v;
+  c_21->u.Res.f1 = st0;
+  r_20 = c_21; break; }
   case 0: {
-  struct Env* a5 = x1_6->u.Thunk.f0;
-  struct Term* x6 = x1_6->u.Thunk.f1;
-  struct Res* x1_7 = ev(st0, a5, x6);
-  struct Res* r_20;
+  struct Env* tenv = x1_6->u.Thunk.f0;
+  struct Term* tt = x1_6->u.Thunk.f1;
+  struct Res* x1_7 = ev(st0, tenv, tt);
+  struct Res* r_22;
   switch (x1_7->tag) {
   case 0: {
-  struct Val* a3 = x1_7->u.Res.f0;
-  struct St* a4_1 = x1_7->u.Res.f1;
-  struct Res* r_21;
-  switch (a4_1->tag) {
+  struct Val* v_1 = x1_7->u.Res.f0;
+  struct St* st1 = x1_7->u.Res.f1;
+  struct Res* r_23;
+  switch (st1->tag) {
   case 0: {
-  int64_t a0_1 = a4_1->u.St.f0;
-  struct Heap* a1 = a4_1->u.St.f1;
-  int64_t a2 = a4_1->u.St.f2;
-  struct Cell* c_22 = malloc(sizeof(struct Cell));
-  c_22->tag = 1;
-  c_22->u.Done.f0 = a3;
-  struct St* c_23 = malloc(sizeof(struct St));
-  c_23->tag = 0;
-  c_23->u.St.f0 = a0_1;
-  c_23->u.St.f1 = store(a1, a_4, c_22);
-  c_23->u.St.f2 = a2;
-  struct Res* c_24 = malloc(sizeof(struct Res));
-  c_24->tag = 0;
-  c_24->u.Res.f0 = a3;
-  c_24->u.Res.f1 = c_23;
-  r_21 = c_24; break; }
-  default: abort();
-  }
-  r_20 = r_21; break; }
-  default: abort();
-  }
-  r_18 = r_20; break; }
-  default: abort();
-  }
-  r_17 = r_18; break; }
-  case 1: {
-  struct Term* a0_2 = t->u.Lam.f0;
-  struct Val* c_25 = malloc(sizeof(struct Val));
-  c_25->tag = 1;
-  c_25->u.VClo.f0 = env_1;
-  c_25->u.VClo.f1 = a0_2;
+  int64_t next1 = st1->u.St.f0;
+  struct Heap* h1 = st1->u.St.f1;
+  int64_t steps1 = st1->u.St.f2;
+  struct Cell* c_24 = malloc(sizeof(struct Cell));
+  c_24->tag = 1;
+  c_24->u.Done.f0 = v_1;
+  struct St* c_25 = malloc(sizeof(struct St));
+  c_25->tag = 0;
+  c_25->u.St.f0 = next1;
+  c_25->u.St.f1 = store(h1, a_5, c_24);
+  c_25->u.St.f2 = steps1;
   struct Res* c_26 = malloc(sizeof(struct Res));
   c_26->tag = 0;
-  c_26->u.Res.f0 = c_25;
-  c_26->u.Res.f1 = st0;
-  r_17 = c_26; break; }
+  c_26->u.Res.f0 = v_1;
+  c_26->u.Res.f1 = c_25;
+  r_23 = c_26; break; }
+  default: abort();
+  }
+  r_22 = r_23; break; }
+  default: abort();
+  }
+  r_20 = r_22; break; }
+  default: abort();
+  }
+  r_19 = r_20; break; }
+  case 1: {
+  struct Term* b = t->u.Lam.f0;
+  struct Val* c_27 = malloc(sizeof(struct Val));
+  c_27->tag = 1;
+  c_27->u.VClo.f0 = env_1;
+  c_27->u.VClo.f1 = b;
+  struct Res* c_28 = malloc(sizeof(struct Res));
+  c_28->tag = 0;
+  c_28->u.Res.f0 = c_27;
+  c_28->u.Res.f1 = st0;
+  r_19 = c_28; break; }
   case 2: {
-  struct Term* x7 = t->u.App.f0;
-  struct Term* x8 = t->u.App.f1;
-  struct Res* x1_9 = ev(st0, env_1, x7);
-  struct Res* r_27;
+  struct Term* f = t->u.App.f0;
+  struct Term* x_1 = t->u.App.f1;
+  struct Res* x1_9 = ev(st0, env_1, f);
+  struct Res* r_29;
   switch (x1_9->tag) {
   case 0: {
-  struct Val* a4_2 = x1_9->u.Res.f0;
-  struct St* a5_1 = x1_9->u.Res.f1;
-  struct Res* r_28;
-  switch (a4_2->tag) {
+  struct Val* fv = x1_9->u.Res.f0;
+  struct St* st1_1 = x1_9->u.Res.f1;
+  struct Res* r_30;
+  switch (fv->tag) {
   case 1: {
-  struct Env* a2_1 = a4_2->u.VClo.f0;
-  struct Term* a3_1 = a4_2->u.VClo.f1;
-  struct Res* r_29;
-  switch (a5_1->tag) {
+  struct Env* cenv = fv->u.VClo.f0;
+  struct Term* b_1 = fv->u.VClo.f1;
+  struct Res* r_31;
+  switch (st1_1->tag) {
   case 0: {
-  int64_t a0_3 = a5_1->u.St.f0;
-  struct Heap* a1_1 = a5_1->u.St.f1;
-  int64_t a4_3 = a5_1->u.St.f2;
-  struct Cell* c_30 = malloc(sizeof(struct Cell));
-  c_30->tag = 0;
-  c_30->u.Thunk.f0 = env_1;
-  c_30->u.Thunk.f1 = x8;
-  struct St* c_31 = malloc(sizeof(struct St));
-  c_31->tag = 0;
-  c_31->u.St.f0 = (a0_3 + 1);
-  c_31->u.St.f1 = store(a1_1, a0_3, c_30);
-  c_31->u.St.f2 = a4_3;
-  struct Env* c_32 = malloc(sizeof(struct Env));
-  c_32->tag = 1;
-  c_32->u.Bind.f0 = a0_3;
-  c_32->u.Bind.f1 = a2_1;
-  r_29 = ev(c_31, c_32, a3_1); break; }
+  int64_t next1_1 = st1_1->u.St.f0;
+  struct Heap* h1_1 = st1_1->u.St.f1;
+  int64_t steps1_1 = st1_1->u.St.f2;
+  struct Cell* c_32 = malloc(sizeof(struct Cell));
+  c_32->tag = 0;
+  c_32->u.Thunk.f0 = env_1;
+  c_32->u.Thunk.f1 = x_1;
+  struct St* c_33 = malloc(sizeof(struct St));
+  c_33->tag = 0;
+  c_33->u.St.f0 = (next1_1 + 1);
+  c_33->u.St.f1 = store(h1_1, next1_1, c_32);
+  c_33->u.St.f2 = steps1_1;
+  struct Env* c_34 = malloc(sizeof(struct Env));
+  c_34->tag = 1;
+  c_34->u.Bind.f0 = next1_1;
+  c_34->u.Bind.f1 = cenv;
+  r_31 = ev(c_33, c_34, b_1); break; }
   default: abort();
   }
-  r_28 = r_29; break; }
+  r_30 = r_31; break; }
   default: {
   fprintf(stderr, "%s\n", "\"./LowLambda.hs\",89:26"); abort();
-  r_28 = 0; break; }
+  r_30 = 0; break; }
   }
-  r_27 = r_28; break; }
+  r_29 = r_30; break; }
   default: abort();
   }
-  r_17 = r_27; break; }
+  r_19 = r_29; break; }
   case 3: {
-  int64_t x11 = t->u.Lit.f0;
-  struct Val* c_33 = malloc(sizeof(struct Val));
-  c_33->tag = 0;
-  c_33->u.VInt.f0 = x11;
-  struct Res* c_34 = malloc(sizeof(struct Res));
-  c_34->tag = 0;
-  c_34->u.Res.f0 = c_33;
-  c_34->u.Res.f1 = st0;
-  r_17 = c_34; break; }
+  int64_t n_2 = t->u.Lit.f0;
+  struct Val* c_35 = malloc(sizeof(struct Val));
+  c_35->tag = 0;
+  c_35->u.VInt.f0 = n_2;
+  struct Res* c_36 = malloc(sizeof(struct Res));
+  c_36->tag = 0;
+  c_36->u.Res.f0 = c_35;
+  c_36->u.Res.f1 = st0;
+  r_19 = c_36; break; }
   case 4: {
-  int x13 = t->u.Prim.f0;
-  struct Term* x14 = t->u.Prim.f1;
-  struct Term* x15 = t->u.Prim.f2;
-  struct Res* x1_12 = ev(st0, env_1, x14);
-  struct Res* r_35;
+  int o_1 = t->u.Prim.f0;
+  struct Term* x_2 = t->u.Prim.f1;
+  struct Term* y_1 = t->u.Prim.f2;
+  struct Res* x1_12 = ev(st0, env_1, x_2);
+  struct Res* r_37;
   switch (x1_12->tag) {
   case 0: {
-  struct Val* a4_4 = x1_12->u.Res.f0;
-  struct St* a5_2 = x1_12->u.Res.f1;
-  struct Res* r_36;
-  switch (a4_4->tag) {
+  struct Val* vx = x1_12->u.Res.f0;
+  struct St* st1_2 = x1_12->u.Res.f1;
+  struct Res* r_38;
+  switch (vx->tag) {
   case 0: {
-  int64_t a2_2 = a4_4->u.VInt.f0;
-  struct Res* x1_14 = ev(a5_2, env_1, x15);
-  struct Res* r_37;
+  int64_t i = vx->u.VInt.f0;
+  struct Res* x1_14 = ev(st1_2, env_1, y_1);
+  struct Res* r_39;
   switch (x1_14->tag) {
   case 0: {
-  struct Val* a1_2 = x1_14->u.Res.f0;
-  struct St* a3_2 = x1_14->u.Res.f1;
-  struct Res* r_38;
-  switch (a1_2->tag) {
+  struct Val* vy = x1_14->u.Res.f0;
+  struct St* st2 = x1_14->u.Res.f1;
+  struct Res* r_40;
+  switch (vy->tag) {
   case 0: {
-  int64_t a0_4 = a1_2->u.VInt.f0;
-  struct Val* c_39 = malloc(sizeof(struct Val));
-  c_39->tag = 0;
-  c_39->u.VInt.f0 = prim(x13, a2_2, a0_4);
-  struct Res* c_40 = malloc(sizeof(struct Res));
-  c_40->tag = 0;
-  c_40->u.Res.f0 = c_39;
-  c_40->u.Res.f1 = a3_2;
-  r_38 = c_40; break; }
+  int64_t j = vy->u.VInt.f0;
+  struct Val* c_41 = malloc(sizeof(struct Val));
+  c_41->tag = 0;
+  c_41->u.VInt.f0 = prim(o_1, i, j);
+  struct Res* c_42 = malloc(sizeof(struct Res));
+  c_42->tag = 0;
+  c_42->u.Res.f0 = c_41;
+  c_42->u.Res.f1 = st2;
+  r_40 = c_42; break; }
   default: {
   fprintf(stderr, "%s\n", "\"./LowLambda.hs\",102:34"); abort();
+  r_40 = 0; break; }
+  }
+  r_39 = r_40; break; }
+  default: abort();
+  }
+  r_38 = r_39; break; }
+  default: {
+  fprintf(stderr, "%s\n", "\"./LowLambda.hs\",98:26"); abort();
   r_38 = 0; break; }
   }
   r_37 = r_38; break; }
   default: abort();
   }
-  r_36 = r_37; break; }
-  default: {
-  fprintf(stderr, "%s\n", "\"./LowLambda.hs\",98:26"); abort();
-  r_36 = 0; break; }
-  }
-  r_35 = r_36; break; }
-  default: abort();
-  }
-  r_17 = r_35; break; }
+  r_19 = r_37; break; }
   case 5: {
-  struct Term* x19 = t->u.If0.f0;
-  struct Term* x20 = t->u.If0.f1;
-  struct Term* x21 = t->u.If0.f2;
-  struct Res* x1_16 = ev(st0, env_1, x19);
-  struct Res* r_41;
+  struct Term* c_2 = t->u.If0.f0;
+  struct Term* x_3 = t->u.If0.f1;
+  struct Term* y_2 = t->u.If0.f2;
+  struct Res* x1_16 = ev(st0, env_1, c_2);
+  struct Res* r_43;
   switch (x1_16->tag) {
   case 0: {
-  struct Val* a1_3 = x1_16->u.Res.f0;
-  struct St* a2_3 = x1_16->u.Res.f1;
-  struct Res* r_42;
-  switch (a1_3->tag) {
+  struct Val* vc = x1_16->u.Res.f0;
+  struct St* st1_3 = x1_16->u.Res.f1;
+  struct Res* r_44;
+  switch (vc->tag) {
   case 0: {
-  int64_t a0_5 = a1_3->u.VInt.f0;
-  struct Res* r_43;
-  switch ((a0_5 == 0)) {
+  int64_t i_1 = vc->u.VInt.f0;
+  struct Res* r_45;
+  switch ((i_1 == 0)) {
   case 0: {
-  r_43 = ev(a2_3, env_1, x21); break; }
+  r_45 = ev(st1_3, env_1, y_2); break; }
   case 1: {
-  r_43 = ev(a2_3, env_1, x20); break; }
+  r_45 = ev(st1_3, env_1, x_3); break; }
   default: abort();
   }
-  r_42 = r_43; break; }
+  r_44 = r_45; break; }
   default: {
   fprintf(stderr, "%s\n", "\"./LowLambda.hs\",107:26"); abort();
-  r_42 = 0; break; }
+  r_44 = 0; break; }
   }
-  r_41 = r_42; break; }
+  r_43 = r_44; break; }
   default: abort();
   }
-  r_17 = r_41; break; }
+  r_19 = r_43; break; }
   default: abort();
   }
-  r_15 = r_17; break; }
+  r_17 = r_19; break; }
   default: abort();
   }
-  return r_15;
+  return r_17;
 }
 
 struct Res* eval(struct Term* t0) {
-  struct Heap* c_44 = malloc(sizeof(struct Heap));
-  c_44->tag = 0;
-  struct St* c_45 = malloc(sizeof(struct St));
-  c_45->tag = 0;
-  c_45->u.St.f0 = 1;
-  c_45->u.St.f1 = c_44;
-  c_45->u.St.f2 = 0;
-  struct Env* c_46 = malloc(sizeof(struct Env));
+  struct Heap* c_46 = malloc(sizeof(struct Heap));
   c_46->tag = 0;
-  return ev(c_45, c_46, t0);
+  struct St* c_47 = malloc(sizeof(struct St));
+  c_47->tag = 0;
+  c_47->u.St.f0 = 1;
+  c_47->u.St.f1 = c_46;
+  c_47->u.St.f2 = 0;
+  struct Env* c_48 = malloc(sizeof(struct Env));
+  c_48->tag = 0;
+  return ev(c_47, c_48, t0);
 }
 ---- run
 2 + 3 * 4 = VInt 14  (5 steps)

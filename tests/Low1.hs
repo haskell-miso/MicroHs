@@ -16,7 +16,7 @@ cube x = ~(power 3 [| x |])
 -- A loop: a recursive low function, made with genRec.
 sumSq :: Low Int -> Low Int
 sumSq n = runGen $ do
-  go <- genRec $ \ go -> [| \ i acc -> if i > ~n then acc else ~go (i + 1) (acc + i * i) |]
+  go <- genRecNamed "go" $ \ go -> [| \ i acc -> if i > ~n then acc else ~go (i + 1) (acc + i * i) |]
   return [| ~go 1 0 |]
 
 sumSquares :: Int -> Int
@@ -37,7 +37,7 @@ areaOf s = ~(area [| s |])
 
 lenL :: Low [Int] -> Low Int
 lenL xs = runGen $ do
-  go <- genRec $ \ go -> [| \ l acc -> case l of { [] -> acc; _ : r -> ~go r (acc + 1) } |]
+  go <- genRecNamed "go" $ \ go -> [| \ l acc -> case l of { [] -> acc; _ : r -> ~go r (acc + 1) } |]
   return [| ~go ~xs 0 |]
 
 len :: [Int] -> Int
@@ -51,7 +51,7 @@ safeDiv x y = ~([| if y == 0 then Nothing else Just (x `quot` y) |])
 
 -- A polymorphic generator: the type variable needs LowRep (it is a value type in the low code).
 twice :: LowRep a => Low (a -> a) -> Low a -> Low a
-twice f x = genLet x $ \ y -> [| ~f (~f ~y) |]
+twice f x = genLetNamed "y" x $ \ y -> [| ~f (~f ~y) |]
 
 incTwice :: Int -> Int
 incTwice n = ~(twice [| \ k -> k + 1 |] [| n |])

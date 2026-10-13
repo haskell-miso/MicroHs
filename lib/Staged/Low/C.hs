@@ -20,7 +20,7 @@ import Data.List(intercalate, nub)
 import Staged.Low
 
 -- The output: function definitions (in order), and the statements of the current function.
-data CS = CS { csFuns :: [String], csStmts :: [String], csUniq :: Int, csDecls :: [String] }
+data CS = CS { csFuns :: [String], csStmts :: [String], csUniq :: Int, csDecls :: [String], csUsed :: [String] }
 
 newtype C a = C (CS -> (a, CS))
 
@@ -39,7 +39,9 @@ emit :: String -> C ()
 emit l = C $ \ s -> ((), s{ csStmts = l : csStmts s })
 
 freshC :: String -> C String
-freshC b = C $ \ s -> (b ++ "_" ++ show (csUniq s), s{ csUniq = csUniq s + 1 })
+freshC b = C $ \ s ->
+  let n = head [ i | i <- [csUniq s ..], cName (b ++ "_" ++ show i) `notElem` csUsed s ]   -- not a name of the program
+  in  (b ++ "_" ++ show n, s{ csUniq = n + 1 })
 
 addFun :: String -> C ()
 addFun f = C $ \ s -> ((), s{ csFuns = f : csFuns s })
@@ -306,7 +308,7 @@ toC name p =
           LLam xs b -> (xs, b)
           b -> ([], b)
       env = Env (params ++ free) []
-      ((r, ss), st) = unC (block (gen env body)) (CS [] [] 0 [])
+      ((r, ss), st) = unC (block (gen env body)) (CS [] [] 0 [] (map cVar (map fst free ++ varNames (progBody p))))
       rty = cType (typeOf body)
       entry = rty ++ " " ++ name ++ "(" ++ intercalate ", " [ cType t ++ " " ++ cVar x | (x, t) <- params ++ free ] ++ ") {\n" ++
               unlines (map ("  " ++) ss) ++ "  return " ++ r ++ ";\n}"

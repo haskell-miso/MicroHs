@@ -568,8 +568,14 @@ dsMatrix low dflt iis@(i:is) aarms@(aarm : _) =
           oneGroup grp = do
             let
               con = pConOf $ leftMost $ head grp
-            xs <- newIdents (conArity con)
+            xs' <- newIdents (conArity con)
             let
+              -- In low code, keep the names of the pattern variables (for the generated code).
+              xs | low = zipWith hint xs' (transpose [ pArgs (skipEAt p) | (p : _, _, _) <- grp ])
+                 | otherwise = xs'
+              hint x ps = case [ y | p <- ps, y <- patName p, not (isDummyIdent y) ] of
+                            y : _ -> mkIdent (unIdent y ++ unIdent x)
+                            [] -> x
               one (p : ps, sub, e) = (pArgs p ++ ps, sub, e)
               one _ = impossible
             cexp <- dsMatrix low drest (map Var xs ++ is) (map one grp)
@@ -581,6 +587,9 @@ dsMatrix low dflt iis@(i:is) aarms@(aarm : _) =
     leftMost _ = impossible
     skipEAt (EAt _ p) = skipEAt p
     skipEAt p = p
+    patName (EVar y) = [y]
+    patName (EAt y _) = [y]
+    patName _ = []
     isPCon (EVar _) = False
     isPCon (EViewPat _ _) = False
     isPCon _ = True

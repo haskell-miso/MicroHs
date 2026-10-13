@@ -13,9 +13,9 @@ import Data.List(intercalate)
 import Staged.Low
 
 -- Statements are collected in a list (in reverse), expressions are strings.
-newtype J a = J (([String], Int) -> (a, ([String], Int)))
+newtype J a = J (([String], Int, [String]) -> (a, ([String], Int, [String])))
 
-unJ :: J a -> ([String], Int) -> (a, ([String], Int))
+unJ :: J a -> ([String], Int, [String]) -> (a, ([String], Int, [String]))
 unJ (J f) = f
 
 instance Functor J where
@@ -27,16 +27,18 @@ instance Monad J where
   J g >>= f = J $ \ s -> case g s of (a, s') -> unJ (f a) s'
 
 emit :: String -> J ()
-emit l = J $ \ (ls, n) -> ((), (l : ls, n))
+emit l = J $ \ (ls, n, u) -> ((), (l : ls, n, u))
 
 freshJ :: String -> J String
-freshJ b = J $ \ (ls, n) -> (b ++ "_" ++ show n, (ls, n + 1))
+freshJ b = J $ \ (ls, n, u) ->
+  let i = head [ j | j <- [n ..], jsName (b ++ "_" ++ show j) `notElem` u ]   -- not a name of the program
+  in  (b ++ "_" ++ show i, (ls, i + 1, u))
 
 -- Run a statement block, and return its statements.
 block :: J a -> J (a, [String])
-block act = J $ \ (ls, n) ->
-  case unJ act ([], n) of
-    (a, (ls', n')) -> ((a, reverse ls'), (ls, n'))
+block act = J $ \ (ls, n, u) ->
+  case unJ act ([], n, u) of
+    (a, (ls', n', _)) -> ((a, reverse ls'), (ls, n', u))
 
 jsName :: String -> String
 jsName = concatMap esc . baseName
@@ -178,7 +180,7 @@ toJS name p =
           LLam xs b -> (xs, b)
           b -> ([], b)
       args = map (jsName . fst) (params ++ progFree p)
-      ((r, ss), _) = unJ (block (gen body)) ([], 0)
+      ((r, ss), _) = unJ (block (gen body)) ([], 0, map jsName (map fst (progFree p) ++ varNames (progBody p)))
   in  unlines $
         [ "// " ++ show d | d <- progDecls p ] ++
         [ "function " ++ name ++ "(" ++ intercalate ", " args ++ ") {" ] ++

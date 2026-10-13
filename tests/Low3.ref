@@ -3,13 +3,13 @@
 -- data Bool = False | True
 \ (n :: Int) ->
   letrec
-    x :: Int -> Int -> Int = \ (acc :: Int) (s :: Int) ->
+    loop :: Int -> Int -> Int = \ (acc :: Int) (s :: Int) ->
         case s > n of
           False -> case (s `rem` 2) == 0 of
-              False -> x acc (s + 1)
-              True -> x (acc + (s * s)) (s + 1)
+              False -> loop acc (s + 1)
+              True -> loop (acc + (s * s)) (s + 1)
           True -> acc
-  in x 0 1
+  in loop 0 1
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -17,17 +17,17 @@
 
 /* Data.Bool_Type.Bool: False=0, True=1 */
 
-static int64_t x(int64_t n, int64_t acc, int64_t s);
-static int64_t x(int64_t n, int64_t acc, int64_t s) {
+static int64_t loop(int64_t n, int64_t acc, int64_t s);
+static int64_t loop(int64_t n, int64_t acc, int64_t s) {
   int64_t r_0;
   switch ((s > n)) {
   case 0: {
   int64_t r_1;
   switch (((s % 2) == 0)) {
   case 0: {
-  r_1 = x(n, acc, (s + 1)); break; }
+  r_1 = loop(n, acc, (s + 1)); break; }
   case 1: {
-  r_1 = x(n, (acc + (s * s)), (s + 1)); break; }
+  r_1 = loop(n, (acc + (s * s)), (s + 1)); break; }
   default: abort();
   }
   r_0 = r_1; break; }
@@ -39,7 +39,7 @@ static int64_t x(int64_t n, int64_t acc, int64_t s) {
 }
 
 int64_t sum_even_squares(int64_t n) {
-  return x(n, 0, 1);
+  return loop(n, 0, 1);
 }
 ---- dotSeq
 -- type: Int -> Int
@@ -47,14 +47,14 @@ int64_t sum_even_squares(int64_t n) {
 -- data Bool = False | True
 \ (n :: Int) ->
   letrec
-    x :: Int -> (Int, Int) -> Int = \ (acc :: Int) (s :: (Int, Int)) ->
+    loop :: Int -> (Int, Int) -> Int = \ (acc :: Int) (s :: (Int, Int)) ->
         case s of
-          (a7_1, a8) -> case a7_1 > n of
-              False -> case a8 > 1000 of
-                  False -> x (acc + (a7_1 * a8)) (a7_1 + 1, a8 + 1)
+          (x, y) -> case x > n of
+              False -> case y > 1000 of
+                  False -> loop (acc + (x * y)) (x + 1, y + 1)
                   True -> acc
               True -> acc
-  in x 0 (1, 10)
+  in loop 0 (1, 10)
 ---- divDiv
 -- type: Int -> Int -> Int -> Maybe Int
 -- data Maybe #0 = Nothing | Just #0
@@ -65,12 +65,12 @@ int64_t sum_even_squares(int64_t n) {
         True -> Nothing
   in case x1 of
        Nothing -> Nothing
-       Just x3 -> let x1_1 :: Maybe Int = case c == 0 of
-               False -> Just (x3 `quot` c)
+       Just a_1 -> let x1_1 :: Maybe Int = case c == 0 of
+               False -> Just (a_1 `quot` c)
                True -> Nothing
          in case x1_1 of
               Nothing -> Nothing
-              Just x3_1 -> Just (x3_1 + 1)
+              Just a_2 -> Just (a_2 + 1)
 ---- hypot
 #include <stdint.h>
 #include <stdlib.h>
