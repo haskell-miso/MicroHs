@@ -67,16 +67,16 @@ static RV * rt(int64_t c_2, int64_t a_2, Ints * xs) {
     }
   }
 }
-static RV * f(int64_t a_3, int64_t b);
-static RV * f(int64_t a_3, int64_t b) {
-  if ((b == 0)) {
-    RV * x1_38 = rt(0, a_3, C_INil());
+static RV * nth(int64_t xs_1, int64_t n_1);
+static RV * nth(int64_t xs_1, int64_t n_1) {
+  if ((n_1 == 0)) {
+    RV * x1_38 = rt(0, xs_1, C_INil());
     if (x1_38->tag == 1) return C_RInt(0);
     return rt(0, x1_38->u.RCons.f0, C_INil());
   } else {
-    RV * x1_36 = rt(0, a_3, C_INil());
+    RV * x1_36 = rt(0, xs_1, C_INil());
     if (x1_36->tag == 1) return C_RInt(0);
-    return f(x1_36->u.RCons.f1, (b - 1));
+    return nth(x1_36->u.RCons.f1, (n_1 - 1));
   }
 }
 int64_t pfibs(int64_t n) {
@@ -84,6 +84,6 @@ int64_t pfibs(int64_t n) {
   hp = 1;
   int64_t next_8 = alloc(C_Done(C_RNil()));
   heap[next_8] = C_Thunk(0, C_ICons(next_8, C_INil()));
-  x1_40 = f(next_8, n);
+  x1_40 = nth(next_8, n);
   return x1_40->u.RInt.f0;
 }

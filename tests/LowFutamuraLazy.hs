@@ -1,5 +1,5 @@
 module LowFutamuraLazy(main) where
-import Data.List(elemIndex, nub)
+import Data.List(elemIndex, nub, zip3)
 import Data.Maybe(isJust, isNothing)
 import Staged.Low
 import Staged.Low.C(toC)
@@ -47,10 +47,11 @@ import LowCompactC(toCompactC)
 -- Terms, with de Bruijn indices.  In Case s n c, c has the head (Var 1) and
 -- the tail (Var 0) of a Cons; in Letrec b body, Var 0 is the binding in
 -- both b and body.
-data Term = Var Int | Lam Term | App Term Term
+-- The binders have the names of the source, for the generated code.
+data Term = Var Int | Lam String Term | App Term Term
           | Lit Int | Prim Op Term Term | If0 Term Term Term
-          | Nil | Cons Term Term | Case Term Term Term
-          | Letrec Term Term
+          | Nil | Cons Term Term | Case Term Term String String Term
+          | Letrec String Term Term
 
 data Op = Plus | Minus | Times
   deriving (Eq)
@@ -81,68 +82,74 @@ data Res = Res RV St
 
 -- Terms whose lambda bodies, application arguments, constructor fields, and
 -- letrec bindings have labels; equal terms have equal labels
-data LTerm = LVar Int | LLam Int LTerm | LApp LTerm Int LTerm
+data LTerm = LVar Int String | LLam Int LTerm | LApp LTerm Int LTerm
            | LLit Int | LPrim Op LTerm LTerm | LIf0 LTerm LTerm LTerm
            | LNil | LCons Int LTerm Int LTerm | LCase LTerm LTerm LTerm
            | LLetrec Int LTerm LTerm
   deriving (Eq)
 
-labelTerm :: [(LTerm, Int)] -> Term -> (LTerm, [(LTerm, Int)])
-labelTerm tbl t =
+-- The table has the names of the variables in scope of each label.
+type Tbl = [(Int, (LTerm, [String]))]
+
+labelTerm :: [String] -> [(LTerm, (Int, [String]))] -> Term -> (LTerm, [(LTerm, (Int, [String]))])
+labelTerm vs tbl t =
   case t of
-    Var i -> (LVar i, tbl)
-    Lam b ->
-      let (b', tbl1) = labelTerm tbl b
-          (l, tbl2) = label b' tbl1
+    Var i -> (LVar i (vs !! i), tbl)
+    Lam x b ->
+      let (b', tbl1) = labelTerm (x : vs) tbl b
+          (l, tbl2) = label b' (x : vs) tbl1
       in  (LLam l b', tbl2)
     App f x ->
-      let (f', tbl1) = labelTerm tbl f
-          (x', tbl2) = labelTerm tbl1 x
-          (l, tbl3) = label x' tbl2
+      let (f', tbl1) = labelTerm vs tbl f
+          (x', tbl2) = labelTerm vs tbl1 x
+          (l, tbl3) = label x' vs tbl2
       in  (LApp f' l x', tbl3)
     Lit k -> (LLit k, tbl)
     Prim o a b ->
-      let (a', tbl1) = labelTerm tbl a
-          (b', tbl2) = labelTerm tbl1 b
+      let (a', tbl1) = labelTerm vs tbl a
+          (b', tbl2) = labelTerm vs tbl1 b
       in  (LPrim o a' b', tbl2)
     If0 c a b ->
-      let (c', tbl1) = labelTerm tbl c
-          (a', tbl2) = labelTerm tbl1 a
-          (b', tbl3) = labelTerm tbl2 b
+      let (c', tbl1) = labelTerm vs tbl c
+          (a', tbl2) = labelTerm vs tbl1 a
+          (b', tbl3) = labelTerm vs tbl2 b
       in  (LIf0 c' a' b', tbl3)
     Nil -> (LNil, tbl)
     Cons h r ->
-      let (h', tbl1) = labelTerm tbl h
-          (lh, tbl2) = label h' tbl1
-          (r', tbl3) = labelTerm tbl2 r
-          (lr, tbl4) = label r' tbl3
+      let (h', tbl1) = labelTerm vs tbl h
+          (lh, tbl2) = label h' vs tbl1
+          (r', tbl3) = labelTerm vs tbl2 r
+          (lr, tbl4) = label r' vs tbl3
       in  (LCons lh h' lr r', tbl4)
-    Case s n c ->
-      let (s', tbl1) = labelTerm tbl s
-          (n', tbl2) = labelTerm tbl1 n
-          (c', tbl3) = labelTerm tbl2 c
+    Case s n x y c ->
+      let (s', tbl1) = labelTerm vs tbl s
+          (n', tbl2) = labelTerm vs tbl1 n
+          (c', tbl3) = labelTerm (y : x : vs) tbl2 c
       in  (LCase s' n' c', tbl3)
-    Letrec b body ->
-      let (b', tbl1) = labelTerm tbl b
-          (l, tbl2) = label b' tbl1
-          (body', tbl3) = labelTerm tbl2 body
+    Letrec x b body ->
+      let (b', tbl1) = labelTerm (x : vs) tbl b
+          (l, tbl2) = label b' (x : vs) tbl1
+          (body', tbl3) = labelTerm (x : vs) tbl2 body
       in  (LLetrec l b' body', tbl3)
   where
-    label u tb = case lookup u tb of
-                   Just l -> (l, tb)
-                   Nothing -> let l = length tb in (l, (u, l) : tb)
+    label u sc tb = case lookup u tb of
+                      Just (l, _) -> (l, tb)
+                      Nothing -> let l = length tb in (l, (u, (l, sc)) : tb)
 
-labelled :: Term -> (LTerm, [(Int, LTerm)])
-labelled t = let (lt, tbl) = labelTerm [] t in (lt, [ (l, u) | (u, l) <- tbl ])
+labelled :: Term -> (LTerm, Tbl)
+labelled t = let (lt, tbl) = labelTerm [] [] t in (lt, [ (l, (u, sc)) | (u, (l, sc)) <- tbl ])
 
-code :: [(Int, LTerm)] -> Int -> LTerm
-code tbl l = maybe (error "label") id (lookup l tbl)
+code :: Tbl -> Int -> LTerm
+code tbl l = maybe (error "label") fst (lookup l tbl)
+
+scope :: Tbl -> Int -> [String]
+scope tbl l = maybe (error "label") snd (lookup l tbl)
 
 -- The free variables of a term
 free :: LTerm -> [Int]
 free t =
   case t of
-    LVar n -> [n]
+    LVar n _ -> [n]
     LLam _ b -> [ i - 1 | i <- free b, i > 0 ]
     LApp f _ x -> free f ++ free x
     LLit _ -> []
@@ -176,7 +183,7 @@ strictIn b r = go b r 0
 strict :: LTerm -> Int -> Bool
 strict t i =
   case t of
-    LVar n -> n == i
+    LVar n _ -> n == i
     LApp f _ _ -> strict f i
     LPrim _ a b -> strict a i || strict b i
     LIf0 c a b -> strict c i || (strict a i && strict b i)
@@ -241,6 +248,25 @@ absE g e =
       VRV _ _ -> error "absEnv: a run time value not in a cell"
       VClo l b env' -> let (ss, cs) = absEnv g (freeClo b) env' in (SClo l ss, cs)
 
+-- The names of the run time values of an environment (as absEnv False finds
+-- them), after the variables they come from
+absNames :: Tbl -> [String] -> [Int] -> [E] -> [String]
+absNames tbl vs used env = concat [ absNamesE tbl v e | (i, v, e) <- zip3 [0 ..] vs env, i `elem` used ]
+
+absNamesE :: Tbl -> String -> E -> [String]
+absNamesE tbl v e =
+  case e of
+    EVal (VDyn _ _) -> [v]
+    EVal (VClo l b env') -> absNames tbl (drop 1 (scope tbl l)) (freeClo b) env'
+    EVal _ -> []
+    EThk l t env' -> absNames tbl (scope tbl l) (free t) env'
+    ERef _ _ -> [v]
+    EFix l b env' -> absNames tbl (drop 1 (scope tbl l)) (freeClo b) env'
+
+-- The name of a function, for the generated code
+varName :: LTerm -> String
+varName t = case t of { LVar _ x -> x; _ -> "f" }
+
 -- The shape of the environment of an application, for finding recursion:
 -- its compile time thunks are abstracted to cells (see apply)
 recKey :: Int -> LTerm -> [E] -> Sh ()
@@ -263,7 +289,7 @@ reify used env = mapM one (zip [0 ..] env)
                        _ -> pure e
 
 -- An environment of a shape, with the given run time values
-rebuild :: [(Int, LTerm)] -> [ShE ()] -> [Low Int] -> Int -> ([E], [Low Int], Int)
+rebuild :: Tbl -> [ShE ()] -> [Low Int] -> Int -> ([E], [Low Int], Int)
 rebuild tbl ss ps i =
   case ss of
     [] -> ([], ps, i)
@@ -304,7 +330,7 @@ data Ops r = Ops
   , oCase   :: Low RV -> r -> (Low Int -> Low Int -> r) -> r                 -- case on a list
   , oUnbox  :: Low RV -> (Low Int -> r) -> r                                 -- the integer of a value
   , oJoin   :: (Low RV -> Low St -> r) -> ((Low RV -> Low St -> r) -> r) -> r  -- a join point
-  , oFun    :: Int -> (Fn -> [Low Int] -> Low St -> r) -> (Fn -> r) -> r     -- a recursive function
+  , oFun    :: String -> [String] -> Int -> (Fn -> [Low Int] -> Low St -> r) -> (Fn -> r) -> r   -- a recursive function: its name, the names of its arguments
   , oCall   :: Fn -> [Low Int] -> Low St -> (Low RV -> Low St -> r) -> r     -- call it
   , oTail   :: Fn -> [Low Int] -> Low St -> r                                -- call it in tail position
   , oRet    :: Low RV -> Low St -> r                                         -- return
@@ -338,7 +364,8 @@ genOps (Rt store rt) = Ops
   , oCase = \ v a b -> [| case ~v of { RNil -> ~a; RCons h t -> ~(b [| h |] [| t |]) } |]
   , oUnbox = \ v k -> [| case ~v of RInt i -> ~(k [| i |]) |]
   , oJoin = \ k body -> [| let j = \ v s -> ~(k [| v |] [| s |]) in ~(body (\ v s -> [| j ~v ~s |])) |]
-  , oFun = \ n body rest ->
+  , oFun = \ name xs n body rest ->
+      named name (xs ++ ["st"]) $
       case n of
         0 -> [| let f = \ s -> ~(body (Fn0 [| f |]) [] [| s |]) in ~(rest (Fn0 [| f |])) |]
         1 -> [| let f = \ a s -> ~(body (Fn1 [| f |]) [[| a |]] [| s |]) in ~(rest (Fn1 [| f |])) |]
@@ -368,7 +395,7 @@ anaOps = Ops
   , oCase = \ _ a b -> a ++ b di di
   , oUnbox = \ _ k -> k di
   , oJoin = \ k body -> k dv ds ++ body (\ _ _ -> [])
-  , oFun = \ n body rest -> let fn = dummyFn n in body fn (replicate n di) ds ++ rest fn
+  , oFun = \ _ _ n body rest -> let fn = dummyFn n in body fn (replicate n di) ds ++ rest fn
   , oCall = \ _ _ _ k -> k dv ds
   , oTail = \ _ _ _ -> []
   , oRet = \ _ _ -> []
@@ -405,7 +432,7 @@ callK o k fn ps st = case k of { KRet -> oTail o fn ps st; KJoin f -> oCall o fn
 
 -- The context: what to do with code, the items of the analysis, the terms of
 -- the labels, and the numbers of the thunk codes
-data Ctx r = Ctx (Ops r) [Item] [(Int, LTerm)] [(ShE (), Int)]
+data Ctx r = Ctx (Ops r) [Item] Tbl [(ShE (), Int)]
 
 ops :: Ctx r -> Ops r
 ops (Ctx o _ _ _) = o
@@ -522,12 +549,12 @@ ints cs = case cs of
 eval :: LTerm -> [E] -> G r V
 eval t env =
   case t of
-    LVar n -> force (env !! n)
+    LVar n _ -> force (env !! n)
     LLam l b -> pure (VClo l b env)
     LApp _ _ _ -> do
       let (h, args) = spine t
       fv <- eval h env
-      applyAll fv args 0 env
+      applyAll (varName h) fv args 0 env
     LLit n -> pure (VInt n)
     LPrim o a b -> do
       x <- eval a env
@@ -586,7 +613,7 @@ branch alts = G $ \ ctx gs@(GS i m fs as _) k ->
 field :: Int -> LTerm -> [E] -> G r (Low Int)
 field l t env =
   case t of
-    LVar n -> cellOf (env !! n)
+    LVar n _ -> cellOf (env !! n)
     LLit k -> alloc [| Done (RInt ~(lowInt k)) |]
     _ -> thunkCell l t env >>= alloc
 
@@ -600,20 +627,20 @@ cellOf e =
 
 -- Apply a function to the arguments of a spine, with more arguments after
 -- them (for the strictness of a fully applied function)
-applyAll :: V -> [(Int, LTerm)] -> Int -> [E] -> G r V
-applyAll fv args more env =
+applyAll :: String -> V -> [(Int, LTerm)] -> Int -> [E] -> G r V
+applyAll name fv args more env =
   case args of
     [] -> pure fv
     (l, x) : rest -> do
       a <- argument fv l x env (length rest + more)
-      v <- apply fv a
-      applyAll v rest more env
+      v <- apply name fv a
+      applyAll name v rest more env
 
 -- The argument of an application, with r more arguments after it
 argument :: V -> Int -> LTerm -> [E] -> Int -> G r E
 argument fv l x env r =
   case x of
-    LVar n -> pure (env !! n)
+    LVar n _ -> pure (env !! n)
     LLam l' b -> pure (EVal (VClo l' b env))
     LLit n -> pure (EVal (VInt n))
     _ -> case fv of
@@ -643,12 +670,13 @@ force e =
 
 -- Apply a closure: unfold it, or call (and first define) the recursive
 -- function of its shape
-apply :: V -> E -> G r V
-apply fv a =
+-- (the name is that of the function variable, for the generated code)
+apply :: String -> V -> E -> G r V
+apply name fv a =
   case fv of
     VClo l b cenv -> do
       benv0 <- normEnv (free b) (a : cenv)
-      G $ \ ctx@(Ctx o items _ _) gs0@(GS _ _ fs0 as0 _) k ->
+      G $ \ ctx@(Ctx o items tbl _) gs0@(GS _ _ fs0 as0 _) k ->
         let key = recKey l b benv0
             recursive = isJust (lookup key fs0) || IRec key `elem` items || key `elem` as0
         in  if recursive then
@@ -659,16 +687,16 @@ apply fv a =
                       Just fn -> oCall o fn ps st (\ v st1 -> result v (withSt st1 gs))
                       Nothing
                         | IRec key `elem` items ->
-                            define ctx key b ss gs (\ fn gs1 -> oCall o fn ps (stOf gs1) (\ v st1 -> result v (withSt st1 gs1)))
+                            define ctx name (absNames tbl (scope tbl l) (free b) benv) key b ss gs (\ fn gs1 -> oCall o fn ps (stOf gs1) (\ v st1 -> result v (withSt st1 gs1)))
                         | otherwise -> oItem o (IRec key) (result [| RNil |] gs)
             else case gs0 of
               GS i m fs as st -> runG (eval b benv0) ctx (GS i m fs (key : as) st)
                                    (\ v (GS i' m' fs' _ st') -> k v (GS i' m' fs' as st'))
     _ -> error "peval: applying a value that is not a function"
 
-define :: Ctx r -> Sh () -> LTerm -> [ShE ()] -> GS -> (Fn -> GS -> r) -> r
-define ctx@(Ctx o _ tbl _) key b ss (GS i m fs as st) k =
-  oFun o (nParams ss)
+define :: Ctx r -> String -> [String] -> Sh () -> LTerm -> [ShE ()] -> GS -> (Fn -> GS -> r) -> r
+define ctx@(Ctx o _ tbl _) name xs key b ss (GS i m fs as st) k =
+  oFun o name xs (nParams ss)
     (\ fn ps st0 -> let (benv', _, i1) = rebuild tbl ss ps i
                     in  evalT b benv' ctx (GS i1 [] ((key, fn) : fs) as st0) KRet)
     (\ fn -> k fn (GS i m ((key, fn) : fs) as st))
@@ -694,14 +722,14 @@ evalT t env ctx gs@(GS _ m _ _ st) k =
     LApp _ _ _ ->
       let (h, args) = spine t
           (l, x) = last args
-      in  runG (do { f0 <- eval h env; fv <- applyAll f0 (init args) 1 env; a <- argument fv l x env 0; return (fv, a) })
-               ctx gs $ \ (fv, a) gs1 -> applyT fv a ctx gs1 k
+      in  runG (do { f0 <- eval h env; fv <- applyAll (varName h) f0 (init args) 1 env; a <- argument fv l x env 0; return (fv, a) })
+               ctx gs $ \ (fv, a) gs1 -> applyT (varName h) fv a ctx gs1 k
     LLetrec l b body -> runG (letrec l b env) ctx gs $ \ env' gs1 -> evalT body env' ctx gs1 k
-    LVar n | ERef _ a <- env !! n, KRet <- k, isNothing (lookup (keyE (env !! n)) m) -> oForceT (ops ctx) a st
+    LVar n _ | ERef _ a <- env !! n, KRet <- k, isNothing (lookup (keyE (env !! n)) m) -> oForceT (ops ctx) a st
     _ -> runG (eval t env) ctx gs (\ v gs1 -> jump (ops ctx) k (box v) (stOf gs1))
 
-applyT :: V -> E -> Ctx r -> GS -> K r -> r
-applyT fv a ctx@(Ctx o items _ _) gs k =
+applyT :: String -> V -> E -> Ctx r -> GS -> K r -> r
+applyT name fv a ctx@(Ctx o items tbl _) gs k =
   case fv of
     VClo l b cenv ->
       runG (normEnv (free b) (a : cenv)) ctx gs $ \ benv0 gs0@(GS i m fs0 as st0) ->
@@ -713,7 +741,7 @@ applyT fv a ctx@(Ctx o items _ _) gs k =
                 in  case lookup key fs of
                       Just fn -> callK o k fn ps st
                       Nothing
-                        | IRec key `elem` items -> define ctx key b ss gs1 (\ fn gs2 -> callK o k fn ps (stOf gs2))
+                        | IRec key `elem` items -> define ctx name (absNames tbl (scope tbl l) (free b) benv) key b ss gs1 (\ fn gs2 -> callK o k fn ps (stOf gs2))
                         | otherwise -> oItem o (IRec key) (jump o k [| RNil |] st)
             else evalT b benv0 ctx (GS i m fs0 (key : as) st0) k
     _ -> error "peval: applying a value that is not a function"
@@ -745,11 +773,11 @@ thunkCode ctx@(Ctx o _ tbl _) key cs st =
 -- The program applied to the input
 program :: LTerm -> Ctx r -> Low Int -> Low St -> r
 program lt ctx n st =
-  runG (eval lt []) ctx (GS 1 [] [] [] st) (\ f gs -> applyT f (EVal (VDyn 0 n)) ctx gs KRet)
+  runG (eval lt []) ctx (GS 1 [] [] [] st) (\ f gs -> applyT "f" f (EVal (VDyn 0 n)) ctx gs KRet)
 
 -- The items of a program: run the compiler in the analysis mode, on the
 -- program and the code of every thunk found, until it finds no new items
-analyse :: LTerm -> [(Int, LTerm)] -> [Item]
+analyse :: LTerm -> Tbl -> [Item]
 analyse lt tbl = go []
   where
     go items =
@@ -822,7 +850,7 @@ deBruijn = go []
     go vs e =
       case e of
         V x       -> maybe (error ("unbound " ++ x)) Var (elemIndex x vs)
-        L x b     -> Lam (go (x : vs) b)
+        L x b     -> Lam x (go (x : vs) b)
         f :@ a    -> App (go vs f) (go vs a)
         N n       -> Lit n
         a :+ b    -> Prim Plus (go vs a) (go vs b)
@@ -831,8 +859,8 @@ deBruijn = go []
         IfZ c a b -> If0 (go vs c) (go vs a) (go vs b)
         NilN      -> Nil
         ConsN h r -> Cons (go vs h) (go vs r)
-        CaseN s n h r c -> Case (go vs s) (go vs n) (go (r : h : vs) c)
-        LetRec x b body -> Letrec (go (x : vs) b) (go (x : vs) body)
+        CaseN s n h r c -> Case (go vs s) (go vs n) h r (go (r : h : vs) c)
+        LetRec x b body -> Letrec x (go (x : vs) b) (go (x : vs) body)
 
 -- Lists
 zipWithN, tailN, nthN :: Named

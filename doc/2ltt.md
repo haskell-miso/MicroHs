@@ -273,6 +273,11 @@ code with `gen`, `genRec`, or `genLet` is named `x`; `genNamed`,
 `genRecNamed`, and `genLetNamed` take the name to use instead, e.g.
 `go <- genRecNamed "go" $ \ go -> ...`.  The temporaries of the C and
 JavaScript backends never clash with these names.
+`named f xs c` names the variable bound by the let `c` and the parameters
+of the function it binds; the Futamura examples use it to name the
+functions they generate after the variables of the interpreted program
+(`fact`, `fib`, `nth`), and their parameters after the variables they
+come from.
 
 ### Examples
 

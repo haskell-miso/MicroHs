@@ -1,5 +1,5 @@
 module LowFutamura(main) where
-import Data.List(elemIndex, nub)
+import Data.List(elemIndex, nub, nubBy, zip3)
 import Staged.Low
 import Staged.Low.C(toC)
 
@@ -41,7 +41,7 @@ import Staged.Low.C(toC)
 -- across calls is lost.
 
 -- Terms, with de Bruijn indices
-data Term = Var Int | Lam Term | App Term Term
+data Term = Var Int | Lam String Term | App Term Term     -- the names of the source, for the generated code
           | Lit Int | Prim Op Term Term | If0 Term Term Term
 
 data Op = Plus | Minus | Times
@@ -51,44 +51,45 @@ data Op = Plus | Minus | Times
 -- Compile time
 
 -- Terms whose lambda bodies and application arguments have labels
-data LTerm = LVar Int | LLam Int LTerm | LApp LTerm Int LTerm
+data LTerm = LVar Int String | LLam Int LTerm | LApp LTerm Int LTerm
            | LLit Int | LPrim Op LTerm LTerm | LIf0 LTerm LTerm LTerm
   deriving (Eq)
 
 -- Label the lambda bodies and application arguments.  Equal terms get the
 -- same label (the two copies of \ x -> f (x x) in the Y combinator are one
 -- closure), so equal closures have equal shapes.
-labelTerm :: [(LTerm, Int)] -> Term -> (LTerm, [(LTerm, Int)])
-labelTerm tbl t =
+labelTerm :: [String] -> [(LTerm, (Int, [String]))] -> Term -> (LTerm, [(LTerm, (Int, [String]))])
+labelTerm vs tbl t =
   case t of
-    Var i -> (LVar i, tbl)
-    Lam b ->
-      let (b', tbl1) = labelTerm tbl b
-          (l, tbl2) = label b' tbl1
+    Var i -> (LVar i (vs !! i), tbl)
+    Lam x b ->
+      let (b', tbl1) = labelTerm (x : vs) tbl b
+          (l, tbl2) = label b' (x : vs) tbl1
       in  (LLam l b', tbl2)
     App f x ->
-      let (f', tbl1) = labelTerm tbl f
-          (x', tbl2) = labelTerm tbl1 x
-          (l, tbl3) = label x' tbl2
+      let (f', tbl1) = labelTerm vs tbl f
+          (x', tbl2) = labelTerm vs tbl1 x
+          (l, tbl3) = label x' vs tbl2
       in  (LApp f' l x', tbl3)
     Lit k -> (LLit k, tbl)
     Prim o a b ->
-      let (a', tbl1) = labelTerm tbl a
-          (b', tbl2) = labelTerm tbl1 b
+      let (a', tbl1) = labelTerm vs tbl a
+          (b', tbl2) = labelTerm vs tbl1 b
       in  (LPrim o a' b', tbl2)
     If0 c a b ->
-      let (c', tbl1) = labelTerm tbl c
-          (a', tbl2) = labelTerm tbl1 a
-          (b', tbl3) = labelTerm tbl2 b
+      let (c', tbl1) = labelTerm vs tbl c
+          (a', tbl2) = labelTerm vs tbl1 a
+          (b', tbl3) = labelTerm vs tbl2 b
       in  (LIf0 c' a' b', tbl3)
   where
-    label u tb = case lookup u tb of
-                   Just l -> (l, tb)
-                   Nothing -> let l = length tb in (l, (u, l) : tb)
+    label u sc tb = case lookup u tb of
+                      Just (l, _) -> (l, tb)
+                      Nothing -> let l = length tb in (l, (u, (l, sc)) : tb)
 
--- A program's labelled term, and the terms of its labels
-labelled :: Term -> (LTerm, [(Int, LTerm)])
-labelled t = let (lt, tbl) = labelTerm [] t in (lt, [ (l, u) | (u, l) <- tbl ])
+-- A program's labelled term, and the terms of its labels with the names of
+-- the variables in scope (for naming the generated code)
+labelled :: Term -> (LTerm, [(Int, (LTerm, [String]))])
+labelled t = let (lt, tbl) = labelTerm [] [] t in (lt, [ (l, (u, sc)) | (u, (l, sc)) <- tbl ])
 
 -- Compile time values: an integer known at compile time, a run time integer
 -- (with a number that identifies it), or a closure (the label of its body,
@@ -113,7 +114,7 @@ data ShE d = SVal (Sh d) | SThk Int [ShE d] | SNone
 free :: LTerm -> [Int]
 free t =
   case t of
-    LVar n -> [n]
+    LVar n _ -> [n]
     LLam _ b -> [ i - 1 | i <- free b, i > 0 ]
     LApp f _ x -> free f ++ free x
     LLit _ -> []
@@ -154,7 +155,7 @@ dynsE e =
     EThk _ t env -> dynsEnv (free t) env
 
 -- An environment of a shape, with the given run time integers
-rebuild :: [(Int, LTerm)] -> [ShE ()] -> [Low Int] -> Int -> ([E], [Low Int], Int)
+rebuild :: [(Int, (LTerm, [String]))] -> [ShE ()] -> [Low Int] -> Int -> ([E], [Low Int], Int)
 rebuild tbl ss ps i =
   case ss of
     [] -> ([], ps, i)
@@ -163,7 +164,7 @@ rebuild tbl ss ps i =
           (es, ps2, i2) = rebuild tbl ss' ps1 i1
       in  (e : es, ps2, i2)
 
-rebuildE :: [(Int, LTerm)] -> ShE () -> [Low Int] -> Int -> (E, [Low Int], Int)
+rebuildE :: [(Int, (LTerm, [String]))] -> ShE () -> [Low Int] -> Int -> (E, [Low Int], Int)
 rebuildE tbl s ps i =
   case s of
     SVal (SInt n) -> (EVal (VInt n), ps, i)
@@ -176,14 +177,31 @@ rebuildE tbl s ps i =
                  in  (EThk l (code tbl l) env, ps1, i1)
     SNone -> (EVal (VInt 0), ps, i)                 -- not used
 
-code :: [(Int, LTerm)] -> Int -> LTerm
-code tbl l = maybe (error "label") id (lookup l tbl)
+code :: [(Int, (LTerm, [String]))] -> Int -> LTerm
+code tbl l = maybe (error "label") fst (lookup l tbl)
+
+-- The names of the variables in scope of a label
+scope :: [(Int, (LTerm, [String]))] -> Int -> [String]
+scope tbl l = maybe (error "label") snd (lookup l tbl)
+
+-- The names of the run time integers of the used variables of an
+-- environment (dynsEnv), after the variables they come from
+dynNamesEnv :: [(Int, (LTerm, [String]))] -> [String] -> [Int] -> [E] -> [String]
+dynNamesEnv tbl vs used env = concat [ dynNamesE tbl v e | (i, v, e) <- zip3 [0 ..] vs env, i `elem` used ]
+
+dynNamesE :: [(Int, (LTerm, [String]))] -> String -> E -> [String]
+dynNamesE tbl v e =
+  case e of
+    EVal (VDyn _ _) -> [v]
+    EVal (VClo l b env) -> dynNamesEnv tbl (drop 1 (scope tbl l)) (freeClo b) env
+    EVal (VInt _) -> []
+    EThk l t env -> dynNamesEnv tbl (scope tbl l) (free t) env
 
 -- Does a term always use variable i (is it strict in it)?
 strict :: LTerm -> Int -> Bool
 strict t i =
   case t of
-    LVar n -> n == i
+    LVar n _ -> n == i
     LLam _ _ -> False
     LApp f _ _ -> strict f i
     LLit _ -> False
@@ -209,15 +227,16 @@ callFn fn ps =
 data Ops r = Ops (Low Int -> (Low Int -> r) -> r)                     -- let x = e in ...
                  (Low Int -> r -> r -> r)                              -- if e == 0 then .. else ..
                  ((Low Int -> r) -> ((Low Int -> r) -> r) -> r)        -- a join point
-                 (Int -> (Fn -> [Low Int] -> r) -> (Fn -> r) -> r)     -- a recursive function
+                 (String -> [String] -> Int -> (Fn -> [Low Int] -> r) -> (Fn -> r) -> r)   -- a recursive function: its name, the names of its arguments
                  (Low Int -> r)                                        -- return a value
-                 (Sh () -> r -> r)                                     -- a recursive application
+                 (Sh () -> String -> r -> r)                           -- a recursive application, of the variable with the name
 
 genOps :: Ops (Low Int)
 genOps = Ops (\ e k -> [| let x = ~e in ~(k [| x |]) |])
              (\ c a b -> [| if ~c == 0 then ~a else ~b |])
              (\ k body -> [| let j = \ v -> ~(k [| v |]) in ~(body (\ v -> [| j ~v |])) |])
-             (\ n body rest ->
+             (\ name xs n body rest ->
+                named name xs $
                 case n of
                   0 -> [| let f = \ d -> ~(body (Fn1 [| f |]) []) in ~(rest (Fn1 [| f |])) |]
                   1 -> [| let f = \ a -> ~(body (Fn1 [| f |]) [[| a |]]) in ~(rest (Fn1 [| f |])) |]
@@ -225,15 +244,15 @@ genOps = Ops (\ e k -> [| let x = ~e in ~(k [| x |]) |])
                   3 -> [| let f = \ a b c -> ~(body (Fn3 [| f |]) [[| a |], [| b |], [| c |]]) in ~(rest (Fn3 [| f |])) |]
                   _ -> error "peval: a recursive function with more than 3 run time arguments")
              id
-             (\ _ _ -> error "peval: a recursive application that the analysis did not find")
+             (\ _ _ _ -> error "peval: a recursive application that the analysis did not find")
 
-anaOps :: Ops [Sh ()]
+anaOps :: Ops [(Sh (), String)]
 anaOps = Ops (\ _ k -> k dummy)
              (\ _ a b -> a ++ b)
              (\ k body -> k dummy ++ body (\ _ -> []))
-             (\ n body rest -> body dummyFn (replicate n dummy) ++ rest dummyFn)
+             (\ _ _ n body rest -> body dummyFn (replicate n dummy) ++ rest dummyFn)
              (\ _ -> [])
-             (:)
+             (\ key name r -> (key, name) : r)
   where dummy = lowInt 0
         dummyFn = Fn1 [| \ x -> x |]
 
@@ -244,7 +263,7 @@ data GS = GS Int [(ShE Int, V)] [(Sh (), Fn)] [Sh ()]
 
 -- The context: what to do with code, the shapes of the recursive functions,
 -- and the terms of the labels
-data Ctx r = Ctx (Ops r) [Sh ()] [(Int, LTerm)]
+data Ctx r = Ctx (Ops r) [(Sh (), String)] [(Int, (LTerm, [String]))]
 
 -- Code generation, in continuation passing style
 newtype G r a = G (Ctx r -> GS -> (a -> GS -> r) -> r)
@@ -276,12 +295,12 @@ int v =
 eval :: LTerm -> [E] -> G r V
 eval t env =
   case t of
-    LVar n -> force (env !! n)
+    LVar n _ -> force (env !! n)
     LLam l b -> pure (VClo l b env)
     LApp f l x -> do
       fv <- eval f env
       a <- argument fv l x env
-      apply fv a
+      apply (varName f) fv a
     LLit n -> pure (VInt n)
     LPrim o a b -> do
       x <- eval a env
@@ -302,7 +321,7 @@ eval t env =
 argument :: V -> Int -> LTerm -> [E] -> G r E
 argument fv l x env =
   case x of
-    LVar n -> pure (env !! n)
+    LVar n _ -> pure (env !! n)
     LLam l' b -> pure (EVal (VClo l' b env))
     LLit n -> pure (EVal (VInt n))
     _ -> case fv of
@@ -329,8 +348,12 @@ ifDyn c a b env = G $ \ ctx@(Ctx (Ops _ oif ojoin _ _ _) _ _) gs@(GS i m fs as) 
 
 -- Apply a closure: unfold it, or call (and first define) the recursive
 -- function of its shape
-apply :: V -> E -> G r V
-apply fv a =
+-- The name of a function, for the generated code
+varName :: LTerm -> String
+varName t = case t of { LVar _ x -> x; _ -> "f" }
+
+apply :: String -> V -> E -> G r V
+apply name fv a =
   case fv of
     VClo l b cenv -> G $ \ ctx@(Ctx ops@(Ops olet _ _ _ _ orec) recs _) gs@(GS i m fs as) k ->
       let benv = a : cenv
@@ -340,19 +363,22 @@ apply fv a =
       in  case lookup key fs of
             Just fn -> olet (callFn fn ps) (\ x -> result x gs)
             Nothing
-              | key `elem` recs -> define ctx key b benv gs (\ fn gs1 -> olet (callFn fn ps) (\ x -> result x gs1))
-              | key `elem` as -> orec key (result (lowInt 0) gs)
+              | Just fname <- lookup key recs -> define ctx fname key b benv gs (\ fn gs1 -> olet (callFn fn ps) (\ x -> result x gs1))
+              | key `elem` as -> orec key name (result (lowInt 0) gs)
               | otherwise -> runG (eval b benv) ctx (GS i m fs (key : as))
                                (\ v (GS i' m' fs' _) -> k v (GS i' m' fs' as))
     _ -> error "peval: applying an integer"
 
 -- Define the recursive function of a shape: its body is the closure's body
 -- with the run time integers of the environment as arguments
-define :: Ctx r -> Sh () -> LTerm -> [E] -> GS -> (Fn -> GS -> r) -> r
-define ctx@(Ctx (Ops _ _ _ ofun oret _) _ tbl) key b benv (GS i m fs as) k =
+define :: Ctx r -> String -> Sh () -> LTerm -> [E] -> GS -> (Fn -> GS -> r) -> r
+define ctx@(Ctx (Ops _ _ _ ofun oret _) _ tbl) name key b benv (GS i m fs as) k =
   let ss = shapeEnv (const ()) (free b) benv
       n = length (dynsEnv (free b) benv)
-  in  ofun n (\ fn ps -> let (benv', _, i1) = rebuild tbl ss ps i
+      xs = case key of
+             SClo l _ -> dynNamesEnv tbl (scope tbl l) (free b) benv
+             _ -> []
+  in  ofun name xs n (\ fn ps -> let (benv', _, i1) = rebuild tbl ss ps i
                          in  evalT b benv' ctx (GS i1 [] ((key, fn) : fs) as) oret)
              (\ fn -> k fn (GS i m ((key, fn) : fs) as))
 
@@ -371,11 +397,11 @@ evalT t env ctx@(Ctx (Ops _ oif _ _ _ _) _ _) gs ret =
           VClo _ _ _ -> error "peval: if0 on a function"
     LApp f l x ->
       runG (do { fv <- eval f env; a <- argument fv l x env; return (fv, a) }) ctx gs $ \ (fv, a) gs1 ->
-        applyT fv a ctx gs1 ret
+        applyT (varName f) fv a ctx gs1 ret
     _ -> runG (eval t env) ctx gs (\ v _ -> ret (int v))
 
-applyT :: V -> E -> Ctx r -> GS -> (Low Int -> r) -> r
-applyT fv a ctx@(Ctx ops@(Ops _ _ _ _ _ orec) recs _) gs@(GS i m fs as) ret =
+applyT :: String -> V -> E -> Ctx r -> GS -> (Low Int -> r) -> r
+applyT name fv a ctx@(Ctx ops@(Ops _ _ _ _ _ orec) recs _) gs@(GS i m fs as) ret =
   case fv of
     VClo l b cenv ->
       let benv = a : cenv
@@ -384,8 +410,8 @@ applyT fv a ctx@(Ctx ops@(Ops _ _ _ _ _ orec) recs _) gs@(GS i m fs as) ret =
       in  case lookup key fs of
             Just fn -> ret (callFn fn ps)
             Nothing
-              | key `elem` recs -> define ctx key b benv gs (\ fn _ -> ret (callFn fn ps))
-              | key `elem` as -> orec key (ret (lowInt 0))
+              | Just fname <- lookup key recs -> define ctx fname key b benv gs (\ fn _ -> ret (callFn fn ps))
+              | key `elem` as -> orec key name (ret (lowInt 0))
               | otherwise -> evalT b benv ctx (GS i m fs (key : as)) ret
     _ -> error "peval: applying an integer"
 
@@ -401,10 +427,11 @@ primL o x y =
 
 -- Find the shapes of the recursive functions: run the compiler in the
 -- analysis mode until it finds no new ones
-recursive :: (Ctx [Sh ()] -> [Sh ()]) -> [(Int, LTerm)] -> [Sh ()]
+-- (with the name of the variable that the recursive call uses)
+recursive :: (Ctx [(Sh (), String)] -> [(Sh (), String)]) -> [(Int, (LTerm, [String]))] -> [(Sh (), String)]
 recursive run tbl = go []
-  where go recs = let new = nub (run (Ctx anaOps recs tbl)) in
-                  if all (`elem` recs) new then recs else go (nub (recs ++ new))
+  where go recs = let new = [ r | r@(key, _) <- run (Ctx anaOps recs tbl), key `notElem` map fst recs ] in
+                  if null new then recs else go (recs ++ nubBy (\ a b -> fst a == fst b) new)
 
 -- The projections: a program whose value is an integer, and a program whose
 -- value is a function of an integer
@@ -420,7 +447,7 @@ evalFun t =
   let (lt, tbl) = labelled t
       start :: Ctx r -> Low Int -> r
       start ctx@(Ctx (Ops _ _ _ _ oret _) _ _) n =
-        runG (eval lt []) ctx (GS 1 [] [] []) (\ f gs -> applyT f (EVal (VDyn 0 n)) ctx gs oret)
+        runG (eval lt []) ctx (GS 1 [] [] []) (\ f gs -> applyT "f" f (EVal (VDyn 0 n)) ctx gs oret)
       recs = recursive (\ ctx -> start ctx (lowInt 0)) tbl
   in  [| \ n -> ~(start (Ctx genOps recs tbl) [| n |]) |]
 
@@ -440,7 +467,7 @@ deBruijn = go []
     go vs e =
       case e of
         V x       -> maybe (error ("unbound " ++ x)) Var (elemIndex x vs)
-        L x b     -> Lam (go (x : vs) b)
+        L x b     -> Lam x (go (x : vs) b)
         f :@ a    -> App (go vs f) (go vs a)
         N n       -> Lit n
         a :+ b    -> Prim Plus (go vs a) (go vs b)

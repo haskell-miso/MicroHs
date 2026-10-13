@@ -13,14 +13,14 @@
 
 /* Data.Bool_Type.Bool: False=0, True=1 */
 
-static int64_t f(int64_t a);
-static int64_t f(int64_t a) {
+static int64_t fact(int64_t n_1);
+static int64_t fact(int64_t n_1) {
   int64_t r_0;
-  switch ((a == 0)) {
+  switch ((n_1 == 0)) {
   case 0: {
-    int64_t x = (a - 1);
-    int64_t x_1 = f(x);
-    int64_t x_2 = (a * x_1);
+    int64_t x = (n_1 - 1);
+    int64_t x_1 = fact(x);
+    int64_t x_2 = (n_1 * x_1);
     r_0 = x_2;
     break;
   }
@@ -34,4 +34,4 @@ static int64_t f(int64_t a) {
   return r_0;
 }
 
-int64_t pfactorial(int64_t n) { return f(n); }
+int64_t pfactorial(int64_t n) { return fact(n); }

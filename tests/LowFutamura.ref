@@ -3,14 +3,14 @@
 -- data Bool = False | True
 \ (n :: Int) ->
   letrec
-    f :: Int -> Int = \ (a :: Int) ->
-        case a == 0 of
-          False -> let x :: Int = a - 1
-            in let x_1 :: Int = f x
-               in let x_2 :: Int = a * x_1
+    fact :: Int -> Int = \ (n_1 :: Int) ->
+        case n_1 == 0 of
+          False -> let x :: Int = n_1 - 1
+            in let x_1 :: Int = fact x
+               in let x_2 :: Int = n_1 * x_1
                   in x_2
           True -> 1
-  in f n
+  in fact n
 ---- pfactorial, C
 #include <stdint.h>
 #include <stdlib.h>
@@ -19,14 +19,14 @@
 
 /* Data.Bool_Type.Bool: False=0, True=1 */
 
-static int64_t f(int64_t a);
-static int64_t f(int64_t a) {
+static int64_t fact(int64_t n_1);
+static int64_t fact(int64_t n_1) {
   int64_t r_0;
-  switch ((a == 0)) {
+  switch ((n_1 == 0)) {
   case 0: {
-  int64_t x = (a - 1);
-  int64_t x_1 = f(x);
-  int64_t x_2 = (a * x_1);
+  int64_t x = (n_1 - 1);
+  int64_t x_1 = fact(x);
+  int64_t x_2 = (n_1 * x_1);
   r_0 = x_2; break; }
   case 1: {
   r_0 = 1; break; }
@@ -36,7 +36,7 @@ static int64_t f(int64_t a) {
 }
 
 int64_t pfactorial(int64_t n) {
-  return f(n);
+  return fact(n);
 }
 ---- factorial written by hand in low code, reflected
 -- type: Int -> Int
@@ -77,27 +77,27 @@ int64_t factorial(int64_t n) {
 -- data Bool = False | True
 \ (n :: Int) ->
   letrec
-    f :: Int -> Int = \ (a :: Int) ->
-        case a == 0 of
-          False -> let x :: Int = a - 1
+    fib :: Int -> Int = \ (n_1 :: Int) ->
+        case n_1 == 0 of
+          False -> let x :: Int = n_1 - 1
             in case x == 0 of
-                 False -> let x_1 :: Int = a - 1
-                   in let x_2 :: Int = f x_1
-                      in let x_3 :: Int = a - 2
-                         in let x_4 :: Int = f x_3
+                 False -> let x_1 :: Int = n_1 - 1
+                   in let x_2 :: Int = fib x_1
+                      in let x_3 :: Int = n_1 - 2
+                         in let x_4 :: Int = fib x_3
                             in let x_5 :: Int = x_2 + x_4
                                in x_5
                  True -> 1
           True -> 0
-  in f n
+  in fib n
 ---- \ input -> (\ x -> if0 input then 0 else x + x) (spin input), reflected
 -- type: Int -> Int
 -- data Bool = False | True
 \ (n :: Int) ->
   case n == 0 of
     False -> letrec
-        f :: Int -> Int = \ (a :: Int) ->
-            f a
+        f :: Int -> Int = \ (m :: Int) ->
+            f m
       in let x :: Int = f n
          in let x_1 :: Int = x + x
             in x_1
@@ -107,19 +107,19 @@ int64_t factorial(int64_t n) {
 -- data Bool = False | True
 \ (n :: Int) ->
   letrec
-    f :: Int -> Int = \ (a :: Int) ->
-        case a == 0 of
-          False -> let x :: Int = a - 1
+    fib :: Int -> Int = \ (n_1 :: Int) ->
+        case n_1 == 0 of
+          False -> let x :: Int = n_1 - 1
             in case x == 0 of
-                 False -> let x_1 :: Int = a - 1
-                   in let x_2 :: Int = f x_1
-                      in let x_3 :: Int = a - 2
-                         in let x_4 :: Int = f x_3
+                 False -> let x_1 :: Int = n_1 - 1
+                   in let x_2 :: Int = fib x_1
+                      in let x_3 :: Int = n_1 - 2
+                         in let x_4 :: Int = fib x_3
                             in let x_5 :: Int = x_2 + x_4
                                in x_5
                  True -> 1
           True -> 0
-  in let x_6 :: Int = f n
+  in let x_6 :: Int = fib n
      in let x_7 :: Int = x_6 + x_6
         in let x_8 :: Int = x_7 + x_6
            in let x_9 :: Int = x_8 + x_6

@@ -31,7 +31,7 @@ module Staged.Low(
   LowTerm(..), LowProg(..),
   reflect, typeOf, arity, resultType, conFieldTypes, baseName, freeVars, varNames,
   lowPretty, lowPrettyTerm,
-  Gen(..), runGen, gen, genRec, genLet, genNamed, genRecNamed, genLetNamed,
+  Gen(..), runGen, gen, genRec, genLet, genNamed, genRecNamed, genLetNamed, named,
   lowInt, lowWord, lowDouble, lowFloat, lowChar, lowString, lowBool,
   ) where
 import Prelude
@@ -581,21 +581,25 @@ genLet c f = [| let x = ~c in ~(f [| x |]) |]
 -- The same, but the variable gets the given name in the generated code
 -- (made unique if needed), so it can be recognized there.
 genNamed :: forall a . LowRep a => String -> Low a -> Gen (Low a)
-genNamed n c = Gen $ \ k -> named n [| let x = ~c in ~(k [| x |]) |]
+genNamed n c = Gen $ \ k -> named n [] [| let x = ~c in ~(k [| x |]) |]
 
 genRecNamed :: forall a . LowRep a => String -> (Low a -> Low a) -> Gen (Low a)
-genRecNamed n f = Gen $ \ k -> named n [| let x = ~(f [| x |]) in ~(k [| x |]) |]
+genRecNamed n f = Gen $ \ k -> named n [] [| let x = ~(f [| x |]) in ~(k [| x |]) |]
 
 genLetNamed :: forall a b . LowRep a => String -> Low a -> (Low a -> Low b) -> Low b
-genLetNamed n c f = named n [| let x = ~c in ~(f [| x |]) |]
+genLetNamed n c f = named n [] [| let x = ~c in ~(f [| x |]) |]
 
--- Rename the variable bound by a let.
-named :: forall a . String -> Low a -> Low a
-named n c =
+-- Name the variable bound by a let, and the parameters of the function it
+-- binds (as many as there are names), in the generated code.
+named :: forall a . String -> [String] -> Low a -> Low a
+named n xs c =
   case fromLow c of
-    HLet _ t e b -> toLow (HLet n t e b)
-    HLetRec [(_, t)] f -> toLow (HLetRec [(n, t)] f)
+    HLet _ t e b -> toLow (HLet n t (params xs e) b)
+    HLetRec [(_, t)] f -> toLow (HLetRec [(n, t)] (\ vs -> case f vs of ([e], b) -> ([params xs e], b); r -> r))
     _ -> c
+  where
+    params (y : ys) (HLam _ t f) = HLam y t (params ys . f)
+    params _ e = e
 
 -----------------------------------------------------------------------
 -- Compile time values as low code.
