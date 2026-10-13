@@ -9,6 +9,8 @@
 --    variables of the enclosing scope they use are passed as extra arguments
 --    (lambda lifting), which is always possible since functions never escape;
 --  * a case is a switch, a let is a declaration;
+--  * a call of the function itself in tail position is a jump to the start
+--    of the function (its body is a loop), so a loop does not use the C stack;
 --  * memory (Staged.Low.Mem) is one global array of words; a Mem value is a
 --    dummy int (the C compiler removes it), peek and poke are an array access
 --    and an assignment, and a pair with a Mem component is its other component.
@@ -241,11 +243,100 @@ protoFun x t caps e = addFun (funSig x t caps e ++ ";")
 defineFun :: Env -> String -> [(String, LowTy)] -> LowTerm -> C ()
 defineFun env x caps e =
   case e of
-    LLam xs b -> do
-      let t = typeOf e
-      (r, ss) <- block (gen (addVars (xs ++ caps) env) b)
-      addFun (funSig x t caps e ++ " {\n" ++ unlines (map ("  " ++) ss) ++ "  return " ++ r ++ ";\n}")
+    LLam xs b
+      | hasSelfTail x b -> do
+          -- the body is a loop: a call of x in tail position assigns the
+          -- parameters and continues
+          let t = typeOf e
+              params = [ (cVar p, cType pt) | (p, pt) <- caps ++ xs ]
+          (mr, ss) <- block (genT (addVars (xs ++ caps) env) (x, params) b)
+          addFun (funSig x t caps e ++ " {\n  for (;;) {\n" ++ unlines (map ("    " ++) ss) ++
+                  maybe "" (\ r -> "    return " ++ r ++ ";\n") mr ++ "  }\n}")
+      | otherwise -> do
+          let t = typeOf e
+          (r, ss) <- block (gen (addVars (xs ++ caps) env) b)
+          addFun (funSig x t caps e ++ " {\n" ++ unlines (map ("  " ++) ss) ++ "  return " ++ r ++ ";\n}")
     _ -> addFun ("/* " ++ x ++ " is not a function */")
+
+-- Does a term call x in tail position?
+hasSelfTail :: String -> LowTerm -> Bool
+hasSelfTail x at =
+  case at of
+    LApp (LVar g _) _ -> g == x
+    LLet _ _ _ b -> hasSelfTail x b
+    LLetRec _ b -> hasSelfTail x b
+    LCase _ _ alts d -> any (\ (_, _, b) -> hasSelfTail x b) alts || maybe False (hasSelfTail x) d
+    _ -> False
+
+-- A term in tail position of the function (its name, and its C parameters
+-- with their types): a call of the function is assignments to the
+-- parameters and a continue (Nothing: the term does not return here), the
+-- others are generated as usual, with their alternatives in tail position.
+genT :: Env -> (String, [(String, String)]) -> LowTerm -> C (Maybe String)
+genT env self@(x, params) at =
+  case at of
+    LApp (LVar g _) as | g == x -> do
+      as' <- mapM (gen env) as
+      let caps = [ cVar v | (v, _) <- fromMaybe [] (lookup g (eFuns env)) ]
+      -- the new values first (an argument can use a parameter), then the parameters
+      ts <- mapM (\ ((_, pt), a) -> do { t <- freshC "t"; emit (pt ++ " " ++ t ++ " = " ++ a ++ ";"); return t }) (zip params (caps ++ as'))
+      mapM_ (\ ((p, _), t) -> emit (p ++ " = " ++ t ++ ";")) (zip params ts)
+      emit "continue;"
+      return Nothing
+    LLet y t e b
+      | TFun _ _ <- t -> do
+          let caps = capturedOf env e
+              env' = addFunCaps y caps (addVars [(y, t)] env)
+          defineFun env' y caps e
+          genT env' self b
+      | otherwise -> do
+          e' <- gen env e
+          emit (cType t ++ " " ++ cVar y ++ " = " ++ e' ++ ";")
+          genT (addVars [(y, t)] env) self b
+    LLetRec bs b -> do
+      let caps = nub (concat [ capturedOf env e | (_, _, e) <- bs ])
+          env' = foldr (\ (y, _, _) -> addFunCaps y caps) (addVars [ (y, t) | (y, t, _) <- bs ] env) bs
+      mapM_ (\ (y, t, e) -> protoFun y t caps e) bs
+      mapM_ (\ (y, _, e) -> defineFun env' y caps e) bs
+      genT env' self b
+    LCase s cons alts d -> do
+      s' <- gen env s
+      let st = typeOf s
+      r <- freshC "r"
+      emit (cType (typeOf at) ++ " " ++ r ++ ";")
+      -- an alternative: its value is the result, or it continued
+      let alt env2 b = do
+            mb <- genT env2 self b
+            case mb of
+              Just b' -> emit (r ++ " = " ++ b' ++ ";")
+              Nothing -> return ()
+      case (st, cons) of
+        _ | Just i <- memTupleIndex st, [(_, xs, b)] <- alts -> do
+          mapM_ (\ (j, (y, t)) -> emit (cType t ++ " " ++ cVar y ++ " = " ++ (if j == i then s' else "0") ++ ";")) (zip [0 :: Int ..] xs)
+          alt (addVars xs env) b
+        (TData _ _ decl, _) | declNewtype decl, [(_, [(y, t)], b)] <- alts -> do
+          emit (cType t ++ " " ++ cVar y ++ " = " ++ s' ++ ";")
+          alt (addVars [(y, t)] env) b
+        (TData _ _ decl, _) -> do
+          let tag = if isEnum decl then s' else s' ++ "->tag"
+          emit ("switch (" ++ tag ++ ") {")
+          mapM_ (\ (c, xs, b) -> do
+                   emit ("case " ++ show (conTag c) ++ ": {")
+                   mapM_ (\ (i, (y, t)) -> emit (cType t ++ " " ++ cVar y ++ " = " ++ s' ++ "->u." ++ cName (conName c) ++ ".f" ++ show i ++ ";")) (zip [0 :: Int ..] xs)
+                   ((), ss) <- block (alt (addVars xs env) b)
+                   mapM_ emit ss
+                   emit "break; }") alts
+          case d of
+            Just e | length alts < length cons -> do
+              emit "default: {"
+              ((), ss) <- block (alt env e)
+              mapM_ emit ss
+              emit "break; }"
+            _ -> emit "default: abort();"
+          emit "}"
+        _ -> emit ("/* case on " ++ show st ++ " */")
+      return (Just r)
+    _ -> Just <$> gen env at
 
 cLit :: LowLit -> String
 cLit l =

@@ -35,37 +35,59 @@ struct c { int tag; union { struct { void* f0; void* f1; } c; } u; };
 
 static int64_t sumUp(int64_t n, int m, int64_t i, int64_t acc);
 static int64_t sumUp(int64_t n, int m, int64_t i, int64_t acc) {
-  int64_t r_0;
-  switch ((i == n)) {
-  case 0: {
-  r_0 = sumUp(n, m, (i + 1), (acc + mhs_mem[i])); break; }
-  case 1: {
-  r_0 = acc; break; }
-  default: abort();
+  for (;;) {
+    int64_t r_0;
+    switch ((i == n)) {
+    case 0: {
+    int64_t t_1 = n;
+    int t_2 = m;
+    int64_t t_3 = (i + 1);
+    int64_t t_4 = (acc + mhs_mem[i]);
+    n = t_1;
+    m = t_2;
+    i = t_3;
+    acc = t_4;
+    continue;
+    break; }
+    case 1: {
+    r_0 = acc;
+    break; }
+    default: abort();
+    }
+    return r_0;
   }
-  return r_0;
 }
 static int fill(int64_t n, int m_1, int64_t i_1);
 static int fill(int64_t n, int m_1, int64_t i_1) {
-  int r_1;
-  switch ((i_1 == n)) {
-  case 0: {
-  mhs_mem[i_1] = (i_1 * i_1);
-  r_1 = fill(n, 0, (i_1 + 1)); break; }
-  case 1: {
-  r_1 = m_1; break; }
-  default: abort();
+  for (;;) {
+    int r_5;
+    switch ((i_1 == n)) {
+    case 0: {
+    mhs_mem[i_1] = (i_1 * i_1);
+    int64_t t_6 = n;
+    int t_7 = 0;
+    int64_t t_8 = (i_1 + 1);
+    n = t_6;
+    m_1 = t_7;
+    i_1 = t_8;
+    continue;
+    break; }
+    case 1: {
+    r_5 = m_1;
+    break; }
+    default: abort();
+    }
+    return r_5;
   }
-  return r_1;
 }
 
 int64_t squares(int m0, int64_t n) {
   int64_t x1 = sumUp(n, fill(n, m0, 0), 0, 0);
-  int64_t r_2;
+  int64_t r_9;
   int64_t x3 = x1;
   int x4 = 0;
-  r_2 = x3;
-  return r_2;
+  r_9 = x3;
+  return r_9;
 }
 ---- squares, JavaScript
 // data Mem = Mem

@@ -18,15 +18,25 @@
 
 static int64_t x(int64_t n, int64_t i, int64_t acc);
 static int64_t x(int64_t n, int64_t i, int64_t acc) {
-  int64_t r_0;
-  switch ((i > n)) {
-  case 0: {
-  r_0 = x(n, (i + 1), (acc + (i * i))); break; }
-  case 1: {
-  r_0 = acc; break; }
-  default: abort();
+  for (;;) {
+    int64_t r_0;
+    switch ((i > n)) {
+    case 0: {
+    int64_t t_1 = n;
+    int64_t t_2 = (i + 1);
+    int64_t t_3 = (acc + (i * i));
+    n = t_1;
+    i = t_2;
+    acc = t_3;
+    continue;
+    break; }
+    case 1: {
+    r_0 = acc;
+    break; }
+    default: abort();
+    }
+    return r_0;
   }
-  return r_0;
 }
 
 int64_t sumsq(int64_t n) {

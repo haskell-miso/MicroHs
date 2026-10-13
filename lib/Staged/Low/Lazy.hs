@@ -193,8 +193,10 @@ data E = EV V | EThk Int Int [E] | EGlob String | ERef Int Slot Tags
 -- A pointer that generated code holds is kept in a root slot of the frame
 -- of the current function (on the root stack in memory), and read from the
 -- slot when it is used: the collector moves nodes, and updates the slots.
--- A slot is its number in the frame.
-type Slot = Int
+-- A slot is its number in the frame.  The result of a call in tail position
+-- is not kept in a slot: it is returned as it is (nothing allocates in
+-- between); a use that needs a slot roots it first (rooted).
+data Slot = SSlot Int | SRaw (Low Int)
 
 -- A run time word for a field of a node or an argument of a function: an
 -- integer, or the pointer in a root slot (read just before it is used, after
@@ -425,7 +427,10 @@ addr p i = if i == 0 then p else [| ~p + ~(lowInt i) |]
 
 -- The address in a root slot, now
 slotAddr :: Slot -> G r (Low Int)
-slotAddr i = do { f <- gsFrame <$> getS; peekG (addr f i) }
+slotAddr sl =
+  case sl of
+    SSlot i -> do { f <- gsFrame <$> getS; peekG (addr f i) }
+    SRaw w -> return w
 
 -- Keep an address in a new root slot
 pushRoot :: Low Int -> G r Slot
@@ -434,7 +439,14 @@ pushRoot w = do
   let i = gsSlots s
   pokeG (addr (gsFrame s) i) w
   modS (\ s' -> s'{ gsSlots = i + 1 })
-  return i
+  return (SSlot i)
+
+-- A slot that survives an allocation
+rooted :: Slot -> G r Slot
+rooted sl =
+  case sl of
+    SSlot _ -> return sl
+    SRaw w -> pushRoot w
 
 -- Tell the collector where the roots end (before an allocation or a call);
 -- the root stack must not have overflowed
@@ -461,9 +473,11 @@ nonTail g = do
   modS (\ s -> s{ gsTail = t })
   return a
 
--- Leave the frame with a result
+-- Leave the frame with a result.  The root stack pointer need not be
+-- restored: whoever reads it (a callee entering its frame, the collector)
+-- is given it just before.
 leaveFrame :: Low Int -> G r (Low Int)
-leaveFrame w = do { f <- gsFrame <$> getS; pokeG (lowInt spA) f; return w }
+leaveFrame w = return w
 
 -- A word of a field or an argument
 leafWord :: Leaf -> G r (Low Int)
@@ -787,18 +801,21 @@ callFun key es = do
       if gsTail s then pokeG (lowInt spA) (gsFrame s) else publishSp
       m <- getMem
       r <- callG (cFun c key m (if null ws then [lowInt 0] else ws))
-      if ints then return (VDInt r) else do { sl <- pushRoot r; return (VPtr sl tags) }
+      if ints then return (VDInt r)
+      else if gsTail s then return (VPtr (SRaw r) tags)    -- returned as it is
+      else do { sl <- pushRoot r; return (VPtr sl tags) }
 
 -- Force a pointer: inline eval.  If the node can be a thunk, it is a case on
 -- the tags of the thunk kinds it can be: call the code of the thunk and
 -- update the node with an indirection (tag 1) to the value.
 evalPtr :: Slot -> Tags -> G r V
-evalPtr sl tags = do
+evalPtr sl0 tags = do
   let ths = filter isThunkK tags
       whnf = filter (not . isThunkK) tags
-  if null ths then return (VPtr sl tags) else do
+  if null ths then return (VPtr sl0 tags) else do
     inf <- info
     c <- getCtx
+    sl <- rooted sl0
     publishSp
     p <- slotAddr sl
     m <- getMem
@@ -808,8 +825,9 @@ evalPtr sl tags = do
         -- collector may have moved it) becomes an indirection to the value:
         -- the negated tag, and the value
         alt :: NK -> Low Res
+        slotNo = case sl of { SSlot i -> i; SRaw _ -> error "evalPtr" }
         alt k = [| case ~(cThk c k m p) of
-                     (v, m1) -> let q = ~(peek [| m1 |] (addr f sl))
+                     (v, m1) -> let q = ~(peek [| m1 |] (addr f slotNo))
                                 in (v, ~(poke (poke [| m1 |] [| q |] (lowInt (negate (tagOf inf k)))) [| q + 1 |] [| v |])) |]
         chain :: Low Int -> [NK] -> Low Res
         chain t ks =
@@ -1126,7 +1144,7 @@ leavesE nodeM d e = do
         VDInt x -> return [LI x]
         VBool (BS _) -> return []
         VBool (BD b) -> return [LI [| if ~b then 1 else 0 |]]
-        VPtr p _ -> return [LP p]
+        VPtr p _ -> do { p' <- rooted p; return [LP p'] }
         VClo _ es | d < depth -> sub es
         VPrim _ _ es | d < depth -> sub es
         VBool1 b e' | d < depth -> (++) <$> leavesV (VBool b) <*> leavesE nodeM (d + 1) e'

@@ -19,23 +19,41 @@
 
 static int64_t x(int64_t n, int64_t acc, int64_t s);
 static int64_t x(int64_t n, int64_t acc, int64_t s) {
-  int64_t r_0;
-  switch ((s > n)) {
-  case 0: {
-  int64_t r_1;
-  switch (((s % 2) == 0)) {
-  case 0: {
-  r_1 = x(n, acc, (s + 1)); break; }
-  case 1: {
-  r_1 = x(n, (acc + (s * s)), (s + 1)); break; }
-  default: abort();
+  for (;;) {
+    int64_t r_0;
+    switch ((s > n)) {
+    case 0: {
+    int64_t r_1;
+    switch (((s % 2) == 0)) {
+    case 0: {
+    int64_t t_2 = n;
+    int64_t t_3 = acc;
+    int64_t t_4 = (s + 1);
+    n = t_2;
+    acc = t_3;
+    s = t_4;
+    continue;
+    break; }
+    case 1: {
+    int64_t t_5 = n;
+    int64_t t_6 = (acc + (s * s));
+    int64_t t_7 = (s + 1);
+    n = t_5;
+    acc = t_6;
+    s = t_7;
+    continue;
+    break; }
+    default: abort();
+    }
+    r_0 = r_1;
+    break; }
+    case 1: {
+    r_0 = acc;
+    break; }
+    default: abort();
+    }
+    return r_0;
   }
-  r_0 = r_1; break; }
-  case 1: {
-  r_0 = acc; break; }
-  default: abort();
-  }
-  return r_0;
 }
 
 int64_t sum_even_squares(int64_t n) {

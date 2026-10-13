@@ -30,8 +30,6 @@ int64_t combinators(int m, int64_t n) {
   int m_12 = 0;
   int64_t x = mhs_mem[4];
   int64_t x_1 = (100 - n);
-  mhs_mem[4] = x;
-  int m_13 = 0;
   int64_t x1_2 = x_1;
   int64_t r_0;
   int64_t x3_1 = x1_2;
