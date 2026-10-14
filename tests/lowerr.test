@@ -3,7 +3,7 @@ import Staged.Low
 f :: Low ((Int -> Int) -> Int)
 f = [| \ g -> g 1 |]
 -----
-"../tmp/E.hs": line 5, col 8: low code: the type of a quotation must have a value type or a first order function type, not (Int -> Int) -> Int
+../tmp/E.hs:5:8: error: low code: the type of a quotation must have a value type or a first order function type, not (Int -> Int) -> Int
 
 =====
 module E() where
@@ -11,7 +11,7 @@ import Staged.Low
 f :: Low [Int] -> Low [Int]
 f xs = [| map (\ x -> x + 1) ~xs |]
 -----
-"../tmp/E.hs": line 5, col 11: low code: the variable map must have a value type or a first order function type, not (Int -> Int) -> [Int] -> [Int]
+../tmp/E.hs:5:11: error: low code: the variable map must have a value type or a first order function type, not (Int -> Int) -> [Int] -> [Int]
 
 =====
 module E() where
@@ -19,7 +19,7 @@ import Staged.Low
 g :: Low Int -> Low [Int -> Int]
 g x = [| [\ y -> y + ~x] |]
 -----
-"../tmp/E.hs": line 5, col 11: low code: the type of a quotation must have a value type or a first order function type, not [Int -> Int]
+../tmp/E.hs:5:11: error: low code: the type of a quotation must have a value type or a first order function type, not [Int -> Int]
 
 =====
 module E() where
@@ -27,7 +27,7 @@ import Staged.Low
 h :: Num a => Low a -> Low a
 h x = [| ~x + ~x |]
 -----
-"../tmp/E.hs": line 5, col 1: stage mismatch: the type a is meta level, but is used at object level
+../tmp/E.hs:5:1: error: stage mismatch: the type a is meta level, but is used at object level
 
 =====
 module E() where
@@ -36,7 +36,7 @@ import Staged.Low
 f :: Code Int -> Low Int
 f c = [| ~c + 1 |]
 -----
-"../tmp/E.hs": line 6, col 11: only Low code can be spliced into low code
+../tmp/E.hs:6:11: error: only Low code can be spliced into low code
 
 =====
 module E() where
@@ -46,7 +46,7 @@ f x = [| length [~x] |]
 g :: Int -> Int
 g n = ~(f [| n |])
 -----
-"../tmp/E.hs": line 5, col 1: staging error: cannot use Data.List.length in low code: it is not a primitive (low code can only use primitives, constructors, and local definitions)
+../tmp/E.hs:5:1: error: staging error: cannot use Data.List.length in low code: it is not a primitive (low code can only use primitives, constructors, and local definitions)
 
 =====
 module E() where
@@ -54,7 +54,7 @@ import Staged.Low
 f :: Low Int -> Low Int
 f x = [| let y = x in y |]
 -----
-"../tmp/E.hs": line 5, col 18: low code: the variable x must have a value type or a first order function type, not Low Int
+../tmp/E.hs:5:18: error: low code: the variable x must have a value type or a first order function type, not Low Int
 
 =====
 END
