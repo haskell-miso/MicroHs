@@ -156,6 +156,16 @@ testforexpjs:
 testjsval:
 	MHSDIR=.. $(TMHS) -temscripten JSVal -of.js && node f.js > JSVal.out && diff JSVal.ref JSVal.out
 
+# The browser runtime (target browser_rts) is built once, from JSVal (so its
+# FFI table has the JavaScript imports of JSVal), and then runs combinator
+# programs: JSVal.comb, and a program that is not compiled into it.  In node
+# rts-web.js reads the program named by MHS_COMB instead of fetching it.
+testbrowserrts:
+	MHSDIR=.. $(TMHS) -tbrowser_rts -optc -sENVIRONMENT=web,node JSVal ../src/runtime/web/rts-web.js -orts.js
+	MHSDIR=.. $(TMHS) JSVal -oJSVal.comb && MHS_COMB=JSVal.comb node rts.js > JSVal.out && diff JSVal.ref JSVal.out
+	MHSDIR=.. $(TMHS) BrowserRtsOther -oBrowserRtsOther.comb && MHS_COMB=BrowserRtsOther.comb node rts.js > BrowserRtsOther.out && diff BrowserRtsOther.ref BrowserRtsOther.out
+	rm -f rts.js JSVal.comb BrowserRtsOther.comb
+
 testjscallback:
 	MHSDIR=.. $(TMHS) -temscripten JSCallback -of.js && node f.js > JSCallback.out 2>&1 && diff JSCallback.ref JSCallback.out
 
