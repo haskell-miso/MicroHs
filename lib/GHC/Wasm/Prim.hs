@@ -68,8 +68,10 @@ foreign import javascript "$1 === undefined" isUndefined :: JSVal -> Bool
 ----------------------------------------
 -- Strings, converted via UTF-8
 
--- The lengths are explicit, so a NUL character in the text survives the conversion.
-foreign import javascript "Module.UTF8ToString($1, $2, true)" js_fromUTF8 :: Ptr a -> Int -> IO JSString
+-- The lengths are explicit, so a NUL character in the text survives the conversion
+-- (TextDecoder decodes exactly the n bytes; UTF8ToString stops at a NUL in some
+-- emscripten versions).
+foreign import javascript "new TextDecoder().decode(Module.HEAPU8.subarray($1, $1 + $2))" js_fromUTF8 :: Ptr a -> Int -> IO JSString
 foreign import javascript "Module.lengthBytesUTF8($1)" js_utf8Length :: JSString -> IO Int
 foreign import javascript "Module.stringToUTF8($1, $2, $3)" js_toUTF8 :: JSString -> Ptr a -> Int -> IO ()
 
