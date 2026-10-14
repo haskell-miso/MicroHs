@@ -96,6 +96,7 @@
     - --ignore-glob=tests/StagedInferInst.hs
     - --ignore-glob=tests/LowInfer.hs
     - --ignore-glob=tests/LowLambda.hs
+    - --ignore-glob=tests/ExtraComma.hs
     - --ignore-glob=tests/LowFutamura.hs
     - --ignore-glob=tests/LowFutamuraLazy.hs
     - --ignore-glob=tests/LowCompactC.hs
