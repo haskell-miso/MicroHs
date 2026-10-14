@@ -40,10 +40,18 @@ decodeASCII bs
     | isValidASCII bs = T bs -- Safety: the ByteString is valid ASCII, which is also valid UTF-8 and Text uses UTF-8 encoding
     | otherwise = error "Data.Text.Encoding.decodeASCII: invalid"
 
+-- Text is modified UTF-8: NUL is the two bytes C0 80 (so a Text has no 0
+-- byte, as the C strings of the runtime need), which UTF-8 does not allow.
+-- encodeUtf8 and decodeUtf8 convert, and copy only when there is a NUL.
+
 decodeUtf8 :: ByteString -> Text
 decodeUtf8 bs
-    | isValidUtf8 bs = T bs -- Safety: the ByteString is valid UTF-8 and Text uses UTF-8 encoding
+    | isValidUtf8 bs = T (if BS.elem 0 bs then BS.pack (toModified (BS.unpack bs)) else bs)
     | otherwise = error "Data.Text.Encoding.decodeUtf8: invalid"
+  where
+    toModified (0 : r) = 0xC0 : 0x80 : toModified r
+    toModified (b : r) = b : toModified r
+    toModified [] = []
 
 decodeUtf16LE :: ByteString -> Text
 decodeUtf16LE bs
@@ -90,7 +98,14 @@ decodeUtf32BE bs
     decode _ = error "Data.Text.Encoding.decodeUtf32BE: impossible" -- length is not a multiple of 4
 
 encodeUtf8 :: Text -> ByteString
-encodeUtf8 (T bs) = bs -- Safety: Text uses UTF-8 encoding
+encodeUtf8 (T bs)
+    -- C0 occurs in modified UTF-8 only as the first byte of a NUL
+    | BS.elem 0xC0 bs = BS.pack (fromModified (BS.unpack bs))
+    | otherwise = bs
+  where
+    fromModified (0xC0 : 0x80 : r) = 0 : fromModified r
+    fromModified (b : r) = b : fromModified r
+    fromModified [] = []
 
 encodeUtf16LE :: Text -> ByteString
 encodeUtf16LE = BS.pack . concatMap f . unpack

@@ -7537,6 +7537,15 @@ memsize(const char *p)
 extern const uint8_t *combexpr;
 extern const int combexprlen;
 
+/*
+ * A combinator program supplied at run time, instead of the one compiled
+ * in (combexpr): the browser runtime (target browser_rts) fetches it, and
+ * passes it to mhs_run_web.  A runtime built once can then run any program
+ * whose foreign imports are in its FFI table, without compiling C again.
+ */
+static const uint8_t *run_comb = 0;
+static int run_comblen = 0;
+
 #if WANT_TICK
 int dump_ticks = 0;
 #endif
@@ -7676,7 +7685,13 @@ MHS_INIT_ARGS(
   {
     /* Read the combinator code. */
     BFILE *bf;
-    if (combexpr) {
+    if (run_comb) {
+      /* A program supplied at run time (mhs_run_web) */
+      bf = openb_rd_mem(run_comb, run_comblen);
+#if WANT_STDIO
+      *file_sizep = run_comblen;
+#endif
+    } else if (combexpr) {
       /* The code is in memory, create a memore buffer BFILE */
       bf = openb_rd_mem(combexpr, combexprlen);
 #if WANT_STDIO
@@ -8202,6 +8217,20 @@ mhs_js_exn_string(int s)
 
 /* Entry points used from JavaScript. */
 EMSCRIPTEN_KEEPALIVE void *mhs_js_alloc(int n) { return mmalloc(n); }
+
+/*
+ * Run the combinator program comb[0..len-1] (the browser runtime fetches it,
+ * see src/runtime/web/rts-web.js) instead of the compiled in one.  Returns
+ * like mhs_main: when the program finishes, or keeps running on callbacks.
+ */
+EMSCRIPTEN_KEEPALIVE int
+mhs_run_web(const uint8_t *comb, int len)
+{
+  static char *argv[] = { "app", 0 };
+  run_comb = comb;
+  run_comblen = len;
+  return mhs_main(1, argv);
+}
 EMSCRIPTEN_KEEPALIVE void mhs_js_free_mem(void *p) { FREE(p); }
 EMSCRIPTEN_KEEPALIVE void mhs_js_free_sp(uvalue_t sp) { free_stableptr(sp); }
 EMSCRIPTEN_KEEPALIVE void mhs_js_keepalive(void) { mhs_js_keep_alive = 1; }
