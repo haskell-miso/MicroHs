@@ -15,7 +15,8 @@ import MicroHs.Names
 -- Returns the C code and the header for the exports.
 makeFFI :: Flags -> [(Ident, Ident, CType, IsJavascript)] -> [IdentModule] -> [[LDef]] -> (String, String)
 makeFFI _ forExps exclude dss =
-  let ffiImports = nubBy eq [ (ie, n, t, mn) | ds <- dss, (_, d) <- ds, Lit (LForImp mn ie n (CType t)) <- [get d] ]
+  -- An import can be polymorphic (e.g. StablePtr a -> IO ()); the stubs need the type without the forall.
+  let ffiImports = nubBy eq [ (ie, n, dropForallContext t, mn) | ds <- dss, (_, d) <- ds, Lit (LForImp mn ie n (CType t)) <- [get d] ]
                  where get (App _ a) = a   -- if there is no IO type, we have (App primPerform (LForImp ...))
                        get a = a
                        eq (_, n, _, _) (_, n', _, _) = n == n'
