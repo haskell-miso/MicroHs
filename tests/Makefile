@@ -199,6 +199,7 @@ stagedtest:
 	$(TMHS) LowFutamura && $(EVAL) > LowFutamura.out && diff LowFutamura.ref LowFutamura.out
 	$(TMHS) LowFutamuraLazy && $(EVAL) > LowFutamuraLazy.out && diff LowFutamuraLazy.ref LowFutamuraLazy.out
 	$(TMHS) LowFutamuraMonadic && $(EVAL) > LowFutamuraMonadic.out && diff LowFutamuraMonadic.ref LowFutamuraMonadic.out
+	$(TMHS) LowFutamuraLazyMonadic && $(EVAL) > LowFutamuraLazyMonadic.out && diff LowFutamuraLazyMonadic.ref LowFutamuraLazyMonadic.out
 	sh errtester.sh $(MHS) < lowerr.test
 	$(TMHS) --stdin < istaged.in | sed -e '1,/^>/d' > istaged.out && diff istaged.ref istaged.out
 

@@ -100,6 +100,7 @@
     - --ignore-glob=tests/LowFutamura.hs
     - --ignore-glob=tests/LowFutamuraLazy.hs
     - --ignore-glob=tests/LowFutamuraMonadic.hs
+    - --ignore-glob=tests/LowFutamuraLazyMonadic.hs
     - --ignore-glob=tests/LowCompactC.hs
     - --ignore-glob=tests/StagedLib.hs
     - --ignore-glob=tests/Fix.hs
