@@ -1,4 +1,5 @@
 module LowFutamuraLazyMonadic(main) where
+import Data.Char(isAlpha, isAlphaNum, isDigit, isSpace)
 import Data.List(nub)
 import Data.Maybe(fromMaybe, isJust)
 import Staged.Low
@@ -18,6 +19,16 @@ import LowCompactC(toCompactC)
 --    of the monad's state, so the methods thread it.  The code generator and
 --    the analysis (which finds the recursive functions and the code of the
 --    thunks) are its two instances.
+--
+--  * A small parser for terms (at the end), so that the examples can be
+--    written as text, e.g. letrec nats = 0 : map (\ x -> x + 1) nats in ...
+--
+-- The parts: the language; the run time data; compile time values (V, E),
+-- their shapes (Sh, ShE), abstracting them (absEnv) and the keys of
+-- applications (recKey); the items of the analysis and the run time system
+-- (Rt); the partial evaluation monads, with the state along a path (GS) and
+-- the context (Ctx); the interpreter; compiling a program, with the
+-- analysis; the parser and the examples.
 
 -------------------------------------------------------------------------------
 -- The language
@@ -144,16 +155,45 @@ strict t x =
     Letrec _ _ body -> strict body x
     _ -> False
 
--- Compile time values: an integer known at compile time, a run time integer,
--- a run time value (from a cell or a constructor), or a closure (its binder,
--- body, and the entries of the variables it uses).  The Int of a run time
--- value identifies it.
-data V = VInt Int | VDyn Int (Low Int) | VRV Int (Low RV) | VClo Id Term Env
+-- Compile time values, V
+--
+-- What the compiler knows about the value of a term.  Integers and closures
+-- can be known at compile time; a list only exists at run time (it is in
+-- the heap), so a list, or any value that comes from the heap or from a
+-- call, is a run time value (RV) in the generated code.  The Int of a run
+-- time integer or value is a number that identifies it, so that forcing the
+-- same thing twice on a path can be recognised (see keyE).
+data V = VInt Int                -- an integer known at compile time
+       | VDyn Int (Low Int)      -- a run time integer: a variable of the generated code
+       | VRV Int (Low RV)        -- a run time value in weak head normal form (RInt, RNil
+                                 -- or RCons): from a cell, a constructor, or a call
+       | VClo Id Term Env        -- a closure: its binder, its body, and the entries of the
+                                 -- variables it uses (as in closure conversion)
 
--- An environment entry: a value, a compile time thunk, a run time cell, or a
--- recursive function (a letrec bound lambda: its binder, the lambda, and the
--- entries of the other variables it uses)
-data E = EVal V | EThk Id Term Env | ERef Int (Low Int) | EFix Id Term Env
+-- Environment entries, E
+--
+-- A variable is bound to an entry, which is evaluated when the variable is
+-- used (call by need).  There are two kinds of delayed computation:
+--
+--  * a compile time thunk (EThk) is evaluated by the compiler, inline, the
+--    first time it is used on a path of the generated code, which costs
+--    nothing at run time.  It can only be used where the compiler sees all
+--    its uses: as the argument of an application that is unfolded.
+--
+--  * a run time cell (ERef) is a heap address, whose cell holds a run time
+--    thunk (the number of its code, and its captures) or a value.  A thunk
+--    that escapes, into a constructor field or the argument of a recursive
+--    function (whose calls are made at run time), is allocated in a cell
+--    (thunkCell, reify); forcing a cell is a call of rt at run time.
+--
+-- A letrec bound lambda is an EFix, which unfolds to a closure that has
+-- itself in its environment.
+data E = EVal V                  -- a value
+       | EThk Id Term Env        -- a compile time thunk: its label, term, and the entries
+                                 -- of the variables it uses
+       | ERef Int (Low Int)      -- a run time cell: a number that identifies it, and its address
+       | EFix Id Term Env        -- a recursive function: its binder, the lambda, and the
+                                 -- entries of the other variables it uses
 
 type Env = [(Id, E)]
 
@@ -164,11 +204,31 @@ look x env = fromMaybe (error ("peval: unbound " ++ show x)) (lookup x env)
 restrict :: [Id] -> Env -> Env
 restrict xs env = [ (x, e) | x <- xs, Just e <- [lookup x env] ]
 
--- Shapes: what is known at compile time.  Sh Int identifies run time values
--- (to remember what was forced on a path), Sh () abstracts them.
-data Sh d = SInt Int | SDyn d | SRV d | SClo Id [(Id, ShE d)]
+-- Shapes, Sh and ShE
+--
+-- The shape of a value or an entry is what is known about it at compile
+-- time, without the terms: closures, thunks and recursive functions are
+-- their labels (which name their code, since ids are unique) and the shapes
+-- of their environments.  Shapes can be compared, unlike values (which
+-- contain code), so they are the keys of the compiler's tables.  The
+-- parameter d is what a shape records of a run time integer, value, or cell:
+--
+--  * ShE Int (keyE) identifies them by their numbers.  It is the key of what
+--    was forced on a path (gsForced): forcing the same thunk or cell again
+--    reuses the value.
+--
+--  * ShE () (absE) abstracts them: all run time integers are the same.  It
+--    is the key of a recursive function, or of the code of a run time thunk,
+--    whose run time values are parameters (see absEnv).
+data Sh d = SInt Int                   -- an integer known at compile time
+          | SDyn d                     -- a run time integer
+          | SRV d                      -- a run time value
+          | SClo Id [(Id, ShE d)]      -- a closure: its binder, and its environment
   deriving (Eq)
-data ShE d = SVal (Sh d) | SThk Id [(Id, ShE d)] | SRef d | SFix Id [(Id, ShE d)]
+data ShE d = SVal (Sh d)               -- a value
+           | SThk Id [(Id, ShE d)]     -- a compile time thunk: its label, and its environment
+           | SRef d                    -- a run time cell
+           | SFix Id [(Id, ShE d)]     -- a recursive function: its binder, and its environment
   deriving (Eq)
 
 -- The identifying shape of an entry
@@ -187,11 +247,28 @@ keyE e =
                VClo x _ env -> SClo x (keyEnv env)
     keyEnv env = [ (x, keyE e') | (x, e') <- env ]
 
--- The abstract shape of an environment, and its run time values (integers
--- and cell addresses), as arguments of a recursive function (g = False) or
--- the captures of a thunk (g = True, where integers known at compile time
--- are captured too, so that the code of a thunk does not depend on them).
--- Run time values must be in cells (see norm).
+-- Abstracting an environment: absEnv and absE
+--
+-- Code that is generated once and used in many places sees an environment
+-- only through its shape; the run time parts are passed to it.  absEnv
+-- splits an environment into its abstract shape (ShE ()) and the list of its
+-- run time parts, as Ints: run time integers, and the addresses of cells.
+-- The list is in depth first, left to right order, the order in which
+-- rebuild takes them back (and absNames names them).  It is used for two
+-- kinds of code:
+--
+--  * a recursive function (g = False): the list is the arguments of a call.
+--    Integers known at compile time stay in the shape (SInt), so the
+--    function is specialised to them.
+--
+--  * the code of a run time thunk (g = True): the list is the captures that
+--    the thunk cell stores (Ints).  Known integers are captured too (as
+--    SDyn), so the code does not depend on them: the thunks of n - 1 for
+--    n = 3, 2, 1, ... share one code.
+--
+-- A run time value (VRV) is a boxed RV, not an Int, so it must be put in a
+-- cell first (norm) and is then a cell address.  absE does this for one
+-- entry: its abstract shape, and its run time parts.
 absEnv :: Bool -> Env -> ([(Id, ShE ())], [Low Int])
 absEnv g env =
   let xs = [ (x, absE g e) | (x, e) <- env ]
@@ -229,8 +306,25 @@ absNamesE names x e =
 nameOf :: [(Id, String)] -> Id -> String
 nameOf names x = fromMaybe "x" (lookup x names)
 
--- The shape of the environment of an application, for finding recursion:
--- its compile time thunks are abstracted to cells (see call)
+-- The key of an application, recKey
+--
+-- An application of a closure (binder x) is recursive when the compiler,
+-- unfolding it, meets an application with the same key, and is then
+-- compiled to a recursive function of that key.  The key is the abstract
+-- shape of the environment of the closure's body (the argument included),
+-- like absE False, except that compile time thunks are abstracted to cells
+-- (SRef ()):
+--
+--  * the function that the application becomes takes cells, not compile
+--    time thunks (call reifies the thunks before defining or calling it),
+--    so this is the shape of what it is passed;
+--
+--  * the shape of a thunk includes the shapes of its environment, which can
+--    grow with each unfolding: in go (n + 1), where go does not always use
+--    its argument (so it is delayed), the argument is a thunk of n, which is
+--    the thunk n + 1 of the application before, and so on.  Without
+--    abstracting thunks, the keys of the applications of go would all
+--    differ, and the compiler would unfold go forever.
 recKey :: Id -> Env -> Sh ()
 recKey x benv =
   SClo x [ (y, case e of
@@ -285,61 +379,68 @@ callFn fn ps st =
     (Fn3 f, [a, b, c]) -> [| ~f ~a ~b ~c ~st |]
     _ -> error "callFn"
 
--- What the analysis finds: the shapes of the recursive functions, and of the
--- code of the thunks
-data Item = IRec (Sh ()) | IThk (ShE ())
+-- Items: what the analysis finds
+--
+-- The code generator has to know two things before it generates any code:
+--
+--  * which applications are recursive (IRec, by key, see recKey): they are
+--    compiled to recursive functions instead of being unfolded;
+--
+--  * the code of the run time thunks (IThk, by the abstract shape of the
+--    thunk, see absEnv): each one gets a number, which the thunk cells
+--    store, and the run time system has a case for each number (dispatch).
+data Item = IRec (Sh ())       -- a recursive application
+          | IThk (ShE ())      -- the code of a run time thunk
   deriving (Eq)
 
 -- The numbers of the thunk codes
 thunkNumbers :: [Item] -> [(ShE (), Int)]
 thunkNumbers items = zip [ key | IThk key <- items ] [0 ..]
 
--- The low functions of the run time system: the heap update, and rt, which
--- forces a cell (rt 0 a INil st) or runs the code of a thunk (rt (c + 1) 0
--- captures st)
-data Rt = Rt (Low (Heap -> Int -> Cell -> Heap)) (Low (Int -> Int -> Ints -> St -> Res))
+-- The run time system, Rt: the low functions that the generated code calls
+-- (generated once, in compileFun)
+data Rt = Rt
+  { rtStore :: Low (Heap -> Int -> Cell -> Heap)       -- update the cell at an address
+  , rtRun   :: Low (Int -> Int -> Ints -> St -> Res)   -- rt 0 a INil st forces the cell at
+                                                       -- address a; rt (c + 1) 0 cs st runs
+                                                       -- the code of thunk c, on captures cs
+  }
 
 -------------------------------------------------------------------------------
 -- Partial evaluation monads
 
--- The state along a path: the next number for a run time value, what was
--- forced on this path, the recursive functions in scope, the applications
--- being unfolded, and the heap
-data GS = GS Int [(ShE Int, V)] [(Sh (), Fn)] [Sh ()] (Low St)
+-- The generation state, GS
+--
+-- What the compiler knows at a point of the generated code.  It is threaded
+-- along a path of the program: the monads pass it to the continuation, and
+-- the branches of a conditional or a case start with the state before it.
+-- The heap is part of it: the methods that use the heap take the current
+-- heap (a variable of the generated code) from it, and put the new one back.
+data GS = GS
+  { gsNext      :: Int             -- the number of the next run time value (VDyn, VRV, ERef)
+  , gsForced    :: [(ShE Int, V)]  -- the thunks and cells forced on this path, with their values
+  , gsFns       :: [(Sh (), Fn)]   -- the recursive functions in scope, by key
+  , gsUnfolding :: [Sh ()]         -- the keys of the applications being unfolded here;
+                                   -- meeting one of them again is a recursive application
+  , gsSt        :: Low St          -- the heap (and the next free address) at this point
+  }
 
-gsForced :: GS -> [(ShE Int, V)]
-gsForced (GS _ m _ _ _) = m
-
-gsFns :: GS -> [(Sh (), Fn)]
-gsFns (GS _ _ fs _ _) = fs
-
-gsUnfolding :: GS -> [Sh ()]
-gsUnfolding (GS _ _ _ as _) = as
-
-gsSt :: GS -> Low St
-gsSt (GS _ _ _ _ st) = st
+-- The state at the start of some code, numbering run time values from i,
+-- with the heap st
+initGS :: Int -> Low St -> GS
+initGS i st = GS{ gsNext = i, gsForced = [], gsFns = [], gsUnfolding = [], gsSt = st }
 
 withSt :: Low St -> GS -> GS
-withSt st (GS i m fs as _) = GS i m fs as st
+withSt st s = s{ gsSt = st }
 
--- The context: the items of the analysis, the code of the labels, the names
--- of the ids, the numbers of the thunk codes, and the run time system
-data Ctx = Ctx [Item] [(Id, Term)] [(Id, String)] [(ShE (), Int)] Rt
-
-ctxItems :: Ctx -> [Item]
-ctxItems (Ctx items _ _ _ _) = items
-
-ctxCode :: Ctx -> [(Id, Term)]
-ctxCode (Ctx _ tbl _ _ _) = tbl
-
-ctxNames :: Ctx -> [(Id, String)]
-ctxNames (Ctx _ _ names _ _) = names
-
-ctxThunks :: Ctx -> [(ShE (), Int)]
-ctxThunks (Ctx _ _ _ tcs _) = tcs
-
-ctxRt :: Ctx -> Rt
-ctxRt (Ctx _ _ _ _ rt) = rt
+-- The context, Ctx: what is fixed for the whole program
+data Ctx = Ctx
+  { ctxItems  :: [Item]           -- the items found by the analysis
+  , ctxCode   :: [(Id, Term)]     -- the terms of the labels, for rebuild
+  , ctxNames  :: [(Id, String)]   -- the source names of the ids, for the generated code
+  , ctxThunks :: [(ShE (), Int)]  -- the numbers of the thunk codes
+  , ctxRt     :: Rt               -- the run time system (not used by the analysis)
+  }
 
 -- The end of a block of code: a computation of type m End does not return,
 -- it ends with a return, a jump to a join point, or a tail call
@@ -435,26 +536,29 @@ instance MonadPE (PE (Low Res)) where
   tailF fn ps = PE (\ _ s _ -> callFn fn ps (gsSt s))
   ret v = PE (\ _ s _ -> [| Res ~v ~(gsSt s) |])
   forceC a = PE $ \ c s k ->
-    case ctxRt c of
-      Rt _ rt -> [| case ~rt 0 ~a INil ~(gsSt s) of Res v st -> ~(k [| v |] (withSt [| st |] s)) |]
+    let rt = rtRun (ctxRt c)
+    in  [| case ~rt 0 ~a INil ~(gsSt s) of Res v st -> ~(k [| v |] (withSt [| st |] s)) |]
   forceT a = PE $ \ c s _ ->
-    case ctxRt c of
-      Rt _ rt -> [| ~rt 0 ~a INil ~(gsSt s) |]
+    let rt = rtRun (ctxRt c)
+    in  [| ~rt 0 ~a INil ~(gsSt s) |]
   allocC cell = PE $ \ c s k ->
-    case ctxRt c of
-      Rt store _ -> [| case ~(gsSt s) of
-                         St next h -> let s1 = St (next + 1) (~store h next ~cell) in ~(k [| next |] (withSt [| s1 |] s)) |]
+    let store = rtStore (ctxRt c)
+    in  [| case ~(gsSt s) of
+             St next h -> let s1 = St (next + 1) (~store h next ~cell) in ~(k [| next |] (withSt [| s1 |] s)) |]
   setC a cell = PE $ \ c s k ->
-    case ctxRt c of
-      Rt store _ -> [| case ~(gsSt s) of
-                         St next h -> let s1 = St next (~store h ~a ~cell) in ~(k () (withSt [| s1 |] s)) |]
+    let store = rtStore (ctxRt c)
+    in  [| case ~(gsSt s) of
+             St next h -> let s1 = St next (~store h ~a ~cell) in ~(k () (withSt [| s1 |] s)) |]
   uncons xs = PE (\ _ s k -> [| case ~xs of ICons y ys -> ~(k ([| y |], [| ys |]) s) |])
   record it = PE $ \ _ s k ->
     case it of
       IThk _ -> k () s                 -- the code of a thunk: looked up in thunkCell
       IRec _ -> error "peval: a recursive application that the analysis did not find"
 
--- The analysis: only find the items
+-- The analysis instance: only find the items (see analyse).  It generates no
+-- code: a let gives a dummy value, a conditional or a case runs all its
+-- branches, a join point runs both the code after it and the block before
+-- it, a recursive function runs its body, and record collects the items.
 instance MonadPE (PE [Item]) where
   askCtx = PE (\ c s k -> k c s)
   getGS = PE (\ _ s k -> k s s)
@@ -514,9 +618,8 @@ callK k fn ps = case k of { KRet -> tailF fn ps; KJoin j -> callF fn ps >>= j }
 newId :: MonadPE m => m Int
 newId = do
   s <- getGS
-  let GS i m fs as st = s
-  putGS (GS (i + 1) m fs as st)
-  pure i
+  putGS s{ gsNext = gsNext s + 1 }
+  pure (gsNext s)
 
 newRV :: MonadPE m => Low RV -> m V
 newRV x = do { i <- newId; pure (VRV i x) }
@@ -713,7 +816,7 @@ force e =
                  EThk _ t env -> eval t env
                  ERef _ a -> forceC a >>= newRV
                  _ -> error "force"
-          modifyGS (\ (GS i m fs as st) -> GS i ((key, v) : m) fs as st)
+          modifyGS (\ s' -> s'{ gsForced = (key, v) : gsForced s' })
           pure v
 
 -- What applying a closure does
@@ -758,7 +861,7 @@ apply name fv a = do
     Unfold key b benv -> do
       as <- unfolding key
       v <- eval b benv
-      modifyGS (\ (GS i m fs _ st) -> GS i m fs as st)
+      modifyGS (\ s -> s{ gsUnfolding = as })
       pure v
 
 applyT :: MonadPE m => String -> V -> E -> K m -> m End
@@ -777,9 +880,8 @@ applyT name fv a k = do
 unfolding :: MonadPE m => Sh () -> m [Sh ()]
 unfolding key = do
   s <- getGS
-  let GS i m fs as st = s
-  putGS (GS i m fs (key : as) st)
-  pure as
+  putGS s{ gsUnfolding = key : gsUnfolding s }
+  pure (gsUnfolding s)
 
 -- Define the recursive function of a shape: its body is the closure's body
 -- with the run time values of the environment as arguments
@@ -787,12 +889,13 @@ define :: MonadPE m => String -> [String] -> Sh () -> Term -> [(Id, ShE ())] -> 
 define name xs key b ss = do
   c <- askCtx
   s <- getGS
-  let GS i _ fs as _ = s
   fn <- recFun name xs (nParams ss) $ \ fn ps st0 -> do
-          let (benv', _, i1) = rebuild (ctxCode c) ss ps i
-          putGS (GS i1 [] ((key, fn) : fs) as st0)
+          -- the body: nothing is forced yet, the function itself is in scope,
+          -- and the heap is the one it is called with
+          let (benv', _, i1) = rebuild (ctxCode c) ss ps (gsNext s)
+          putGS s{ gsNext = i1, gsForced = [], gsFns = (key, fn) : gsFns s, gsSt = st0 }
           evalT b benv' KRet
-  modifyGS (\ (GS i' m fs' as' st) -> GS i' m ((key, fn) : fs') as' st)
+  modifyGS (\ s' -> s'{ gsFns = (key, fn) : gsFns s' })
   pure fn
 
 -- Evaluate a term in tail position: its value goes to k.  A conditional
@@ -856,7 +959,7 @@ thunkCode key cs =
       c <- askCtx
       s <- getGS
       let (env, _, i) = rebuild (ctxCode c) ss ps 0
-      putGS (GS i [] [] [] (gsSt s))
+      putGS (initGS i (gsSt s))
       evalT (code (ctxCode c) l) env KRet
     _ -> error "thunkCode"
   where unconsN n xs = if n == 0 then pure [] else do
@@ -869,15 +972,23 @@ program t n = do
   f <- eval t []
   applyT "f" f (EVal (VDyn 0 n)) KRet
 
--- The items of a program: run the analysis on the program and the code of
--- every thunk found, until it finds no new items
+-- The analysis
+--
+-- The items of a program: run the analysis (the interpreter in the monad
+-- PE [Item], which generates no code) on the program, and on the code of
+-- every thunk found so far (the thunk codes are entry points of their own:
+-- rt runs them), until it finds no new items.  The items found so far are
+-- in the context, and change what the interpreter does: an application
+-- whose key is an IRec defines a recursive function, whose body is
+-- evaluated in an environment rebuilt from the key, so it can find new
+-- items; and a new thunk code is analysed in the next round.
 analyse :: Term -> [(Id, Term)] -> [(Id, String)] -> [Item]
 analyse t tbl names = go []
   where
     go items =
-      let ctx = Ctx items tbl names (thunkNumbers items) noRt
-          found = analysis (program t di) ctx (GS 1 [] [] [] ds) ++
-                  concat [ analysis (thunkCode key [| INil |]) ctx (GS 0 [] [] [] ds) | IThk key <- items ]
+      let ctx = Ctx{ ctxItems = items, ctxCode = tbl, ctxNames = names, ctxThunks = thunkNumbers items, ctxRt = noRt }
+          found = analysis (program t di) ctx (initGS 1 ds) ++
+                  concat [ analysis (thunkCode key [| INil |]) ctx (initGS 0 ds) | IThk key <- items ]
           new = nub found
       in  if all (`elem` items) new then items else go (nub (items ++ new))
 
@@ -888,6 +999,8 @@ compileFun p =
       tbl = codes t
       items = analyse t tbl names
       tcs = thunkNumbers items
+      context store rt = Ctx{ ctxItems = items, ctxCode = tbl, ctxNames = names, ctxThunks = tcs
+                            , ctxRt = Rt{ rtStore = store, rtRun = rt } }
   in  [| \ n -> ~(runGen $ do
           fetch <- genRecNamed "fetch" $ \ fetch -> [| \ h a ->
                      case h of
@@ -909,9 +1022,8 @@ compileFun p =
                                                      Res v st1 -> case st1 of
                                                        St n1 h1 -> Res v (St n1 (~store h1 a (Done v)))
                      else let d = c - 1 in
-                          ~(dispatch (Ctx items tbl names tcs (Rt store rt)) tcs [| d |] [| xs |] [| st |]) |]
-          let ctx = Ctx items tbl names tcs (Rt store rt)
-          return [| case ~(genCode (program t [| n |]) ctx (GS 1 [] [] [] [| St 1 Empty |])) of
+                          ~(dispatch (context store rt) tcs [| d |] [| xs |] [| st |]) |]
+          return [| case ~(genCode (program t [| n |]) (context store rt) (initGS 1 [| St 1 Empty |])) of
                       Res v _ -> case v of RInt i -> i |]) |]
 
 -- The body of run: the code of every thunk, by number
@@ -919,8 +1031,8 @@ dispatch :: Ctx -> [(ShE (), Int)] -> Low Int -> Low Ints -> Low St -> Low Res
 dispatch ctx tcs c xs st =
   case tcs of
     [] -> [| Res RNil ~st |]                       -- no thunks: run is never called
-    [(key, _)] -> genCode (thunkCode key xs) ctx (GS 0 [] [] [] st)
-    (key, n) : rest -> [| if ~c == ~(lowInt n) then ~(genCode (thunkCode key xs) ctx (GS 0 [] [] [] st))
+    [(key, _)] -> genCode (thunkCode key xs) ctx (initGS 0 st)
+    (key, n) : rest -> [| if ~c == ~(lowInt n) then ~(genCode (thunkCode key xs) ctx (initGS 0 st))
                                               else ~(dispatch ctx rest c xs st) |]
 
 -------------------------------------------------------------------------------
@@ -936,6 +1048,7 @@ lam x f = do
 
 infixl 9 .@
 infixl 6 .+, .-
+infixl 7 .*
 
 (.@) :: T -> T -> T
 f .@ a = do
@@ -983,38 +1096,183 @@ letrecT x b body = do
   body' <- body (pure (Var i))
   pure (Letrec i b' body')
 
--- Lists: zipWith and nth take the variable they are bound to
-zipWithT, nthT :: T -> T
-zipWithT zipWith =
-  lam "f" $ \ f -> lam "xs" $ \ xs -> lam "ys" $ \ ys ->
-    caseList xs nil "x" "xs'" $ \ x xs' ->
-      caseList ys nil "y" "ys'" $ \ y ys' ->
-        cons (f .@ x .@ y) (zipWith .@ f .@ xs' .@ ys')
--- strict in the index, like (!!)
-nthT nth =
-  lam "n" $ \ n -> lam "xs" $ \ xs ->
-    ifz n (caseList xs (lit 0) "h" "t" $ \ h _ -> h)
-          (caseList xs (lit 0) "h" "t" $ \ _ t -> nth .@ (n .- lit 1) .@ t)
+(.*) :: T -> T -> T
+a .* b = Prim Times <$> a <*> b
 
-tailT :: T
-tailT = lam "xs" $ \ xs -> caseList xs nil "h" "t" $ \ _ t -> t
+-------------------------------------------------------------------------------
+-- A parser for terms, for writing examples
+--
+--   e ::= \ x1 .. xn -> e                          a lambda (of n arguments)
+--       | if0 e then e else e                      a conditional on zero
+--       | case e of { [] -> e; h : t -> e }        a case on a list
+--       | letrec x = e in e                        x is bound in both
+--       | e : e                                    a cons (right associative)
+--       | e + e | e - e | e * e                    arithmetic (* binds tighter; left
+--                                                  associative; tighter than :)
+--       | e e                                      an application (binds tightest)
+--       | x | n | [] | ( e )
+--
+-- A definition is x = e.  A defined name is a macro: each use of it builds
+-- the term again, with new ids, like a Haskell definition of type T.  The
+-- parser builds a T (with the builders above) from the scope: the defined
+-- names and the bound variables.
+
+type Scope = [(String, T)]
+
+-- A parser of a term: the term (in a scope), and the tokens after it
+type Parse = [String] -> (Scope -> T, [String])
+
+tokens :: String -> [String]
+tokens s =
+  case s of
+    [] -> []
+    c : cs
+      | isSpace c -> tokens cs
+      | isAlpha c || c == '_' -> let (w, r) = span (\ d -> isAlphaNum d || d == '_' || d == '\'') s in w : tokens r
+      | isDigit c -> let (w, r) = span isDigit s in w : tokens r
+      | c == '-', '>' : r <- cs -> "->" : tokens r
+      | c == '[', ']' : r <- cs -> "[]" : tokens r
+      | otherwise -> [c] : tokens cs
+
+keywords :: [String]
+keywords = ["if0", "then", "else", "case", "of", "letrec", "in"]
+
+isName :: String -> Bool
+isName t = case t of
+             c : _ -> (isAlpha c || c == '_') && t `notElem` keywords
+             _ -> False
+
+isNumber :: String -> Bool
+isNumber t = not (null t) && all isDigit t
+
+parseError :: String -> [String] -> a
+parseError msg ts = error ("parse error: " ++ msg ++ ", at: " ++ unwords (take 8 ts))
+
+expect :: String -> [String] -> [String]
+expect t ts =
+  case ts of
+    t' : ts' | t' == t -> ts'
+    _ -> parseError ("expected " ++ t) ts
+
+pName :: [String] -> (String, [String])
+pName ts =
+  case ts of
+    x : ts' | isName x -> (x, ts')
+    _ -> parseError "expected a variable" ts
+
+pExpr :: Parse
+pExpr ts =
+  case ts of
+    "\\" : ts1 ->
+      let (xs, ts2) = span isName ts1
+          (b, ts3) = pExpr (expect "->" ts2)
+      in  if null xs then parseError "expected a variable" ts1 else (\ sc -> lams xs b sc, ts3)
+    "if0" : ts1 ->
+      let (c, ts2) = pExpr ts1
+          (a, ts3) = pExpr (expect "then" ts2)
+          (b, ts4) = pExpr (expect "else" ts3)
+      in  (\ sc -> ifz (c sc) (a sc) (b sc), ts4)
+    "case" : ts1 ->
+      let (e, ts2) = pExpr ts1
+          (n, ts3) = pExpr (expect "->" (expect "[]" (expect "{" (expect "of" ts2))))
+          (h, ts4) = pName (expect ";" ts3)
+          (t, ts5) = pName (expect ":" ts4)
+          (c, ts6) = pExpr (expect "->" ts5)
+      in  (\ sc -> caseList (e sc) (n sc) h t (\ hv tv -> c ((t, tv) : (h, hv) : sc)), expect "}" ts6)
+    "letrec" : ts1 ->
+      let (x, ts2) = pName ts1
+          (e, ts3) = pExpr (expect "=" ts2)
+          (b, ts4) = pExpr (expect "in" ts3)
+      in  (\ sc -> letrecT x (\ v -> e ((x, v) : sc)) (\ v -> b ((x, v) : sc)), ts4)
+    _ -> pCons ts
+  where lams xs b sc = case xs of
+                         [] -> b sc
+                         x : xs' -> lam x (\ v -> lams xs' b ((x, v) : sc))
+
+-- e : e, right associative, over arithmetic
+pCons :: Parse
+pCons ts0 =
+  let (a, ts1) = pLeft ["+", "-"] (pLeft ["*"] pApp) ts0
+  in  case ts1 of
+        ":" : ts2 -> let (b, ts3) = pCons ts2 in (\ sc -> cons (a sc) (b sc), ts3)
+        _ -> (a, ts1)
+
+-- Left associative operators over the terms of p
+pLeft :: [String] -> Parse -> Parse
+pLeft ops p ts0 = let (a, ts1) = p ts0 in go a ts1
+  where go a ts = case ts of
+                    o : ts' | o `elem` ops -> let (b, ts'') = p ts' in go (\ sc -> binop o (a sc) (b sc)) ts''
+                    _ -> (a, ts)
+        binop o = case o of { "+" -> (.+); "-" -> (.-); _ -> (.*) }
+
+pApp :: Parse
+pApp ts0 = let (f, ts1) = pAtom ts0 in go f ts1
+  where go f ts = case ts of
+                    t : _ | isName t || isNumber t || t == "(" || t == "[]" -> let (a, ts') = pAtom ts in go (\ sc -> f sc .@ a sc) ts'
+                    _ -> (f, ts)
+
+pAtom :: Parse
+pAtom ts =
+  case ts of
+    "(" : ts1 -> let (e, ts2) = pExpr ts1 in (e, expect ")" ts2)
+    "[]" : ts1 -> (\ _ -> nil, ts1)
+    t : ts1 | isNumber t -> (\ _ -> lit (read t), ts1)
+            | isName t -> (\ sc -> fromMaybe (error ("unbound variable " ++ t)) (lookup t sc), ts1)
+    _ -> parseError "expected a term" ts
+
+-- A term, with the given definitions in scope
+parseTerm :: Scope -> String -> T
+parseTerm sc s =
+  case pExpr (tokens s) of
+    (e, []) -> e sc
+    (_, ts) -> parseError "unexpected tokens" ts
+
+-- Definitions, each with the ones before it in scope
+defs :: [String] -> Scope
+defs = foldl def []
+  where def sc d = case tokens d of
+                     x : "=" : ts | isName x -> (x, parseTerm sc (unwords ts)) : sc
+                     ts -> parseError "expected a definition x = e" ts
+
+-------------------------------------------------------------------------------
+-- Examples
+
+-- Definitions that the examples use
+prelude :: Scope
+prelude = defs
+  [ "tail = \\ xs -> case xs of { [] -> []; h : t -> t }"
+  , "nth = letrec nth = \\ n xs -> if0 n then case xs of { [] -> 0; h : t -> h }" ++
+    "                              else case xs of { [] -> 0; h : t -> nth (n - 1) t } in nth"
+  , "map = letrec map = \\ f xs -> case xs of { [] -> []; x : xs' -> f x : map f xs' } in map"
+  ]
+
+term :: String -> T
+term = parseTerm prelude
 
 -- fibs = 0 : 1 : zipWith (+) fibs (tail fibs);  main input = fibs !! input
+-- (nth is strict in the index, like (!!))
 fibsProgram :: T
-fibsProgram =
-  lam "input" $ \ input ->
-    letrecT "zipWith" zipWithT $ \ zipWith ->
-      letrecT "nth" nthT $ \ nth ->
-        letrecT "fibs" (\ fibs -> cons (lit 0) (cons (lit 1)
-                          (zipWith .@ lam "a" (\ a -> lam "b" $ \ b -> a .+ b) .@ fibs .@ (tailT .@ fibs)))) $ \ fibs ->
-          nth .@ input .@ fibs
+fibsProgram = term $ unwords
+  [ "\\ input ->"
+  , "  letrec zipWith = \\ f xs ys ->"
+  , "    case xs of { [] -> []; x : xs' -> case ys of { [] -> []; y : ys' -> f x y : zipWith f xs' ys' } } in"
+  , "  letrec nth = \\ n xs ->"
+  , "    if0 n then case xs of { [] -> 0; h : t -> h }"
+  , "          else case xs of { [] -> 0; h : t -> nth (n - 1) t } in"
+  , "  letrec fibs = 0 : 1 : zipWith (\\ a b -> a + b) fibs (tail fibs) in"
+  , "  nth input fibs" ]
 
 pfibs :: Low (Int -> Int)
 pfibs = compileFun fibsProgram
 
--- Run time code: the compiled program is spliced in.
-fibsC :: Int -> Int
+-- An infinite list, made and consumed lazily: nats is 0, 1, 2, ...
+psquares :: Low (Int -> Int)
+psquares = compileFun (term "\\ input -> letrec nats = 0 : map (\\ x -> x + 1) nats in nth input (map (\\ x -> x * x) nats)")
+
+-- Run time code: the compiled programs are spliced in.
+fibsC, squaresC :: Int -> Int
 fibsC = pfibs
+squaresC = psquares
 
 main :: IO ()
 main = do
@@ -1024,6 +1282,9 @@ main = do
   putStr (lowString (toCompactC False "pfibs" (reflect pfibs)))
   putStrLn "---- pfibs, compact C with a mutable heap"
   putStr (lowString (toCompactC True "pfibs" (reflect pfibs)))
+  putStrLn "---- psquares = compileFun (\\ input -> letrec nats = 0 : map (\\ x -> x + 1) nats in nth input (map (\\ x -> x * x) nats)), reflected"
+  putStr (lowString (lowPretty (reflect psquares)))
   putStrLn "---- run"
   print (map fibsC [0 .. 20])
   print (fibsC 40)                  -- fib 46 is the largest that fits a 32 bit Int
+  print (map squaresC [0 .. 10])

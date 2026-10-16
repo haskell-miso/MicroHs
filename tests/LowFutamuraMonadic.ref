@@ -17,18 +17,18 @@
 #include <stdio.h>
 #include <math.h>
 
-/* Data.Bool_Type.Bool: False=0, True=1 */
+enum { Bool_False = 0, Bool_True = 1 };
 
 static int64_t fact(int64_t n_1);
 static int64_t fact(int64_t n_1) {
   int64_t r_0;
   switch ((n_1 == 0)) {
-  case 0: {
+  case Bool_False: {
   int64_t x = (n_1 - 1);
   int64_t x_1 = fact(x);
   int64_t x_2 = (n_1 * x_1);
   r_0 = x_2; break; }
-  case 1: {
+  case Bool_True: {
   r_0 = 1; break; }
   default: abort();
   }
@@ -54,15 +54,15 @@ int64_t pfactorial(int64_t n) {
 #include <stdio.h>
 #include <math.h>
 
-/* Data.Bool_Type.Bool: False=0, True=1 */
+enum { Bool_False = 0, Bool_True = 1 };
 
 static int64_t go(int64_t m);
 static int64_t go(int64_t m) {
   int64_t r_0;
   switch ((m == 0)) {
-  case 0: {
+  case Bool_False: {
   r_0 = (m * go((m - 1))); break; }
-  case 1: {
+  case Bool_True: {
   r_0 = 1; break; }
   default: abort();
   }
@@ -102,7 +102,7 @@ int64_t factorial(int64_t n) {
          in let x_1 :: Int = x + x
             in x_1
     True -> 0
----- \ input -> (\ x -> x + x + x + x) (fib input), reflected
+---- \ input -> (\ x -> x + x + x + x) (fibonacci input), reflected
 -- type: Int -> Int
 -- data Bool = False | True
 \ (n :: Int) ->
@@ -124,7 +124,20 @@ int64_t factorial(int64_t n) {
         in let x_8 :: Int = x_7 + x_6
            in let x_9 :: Int = x_8 + x_6
               in x_9
----- factorial 10, 6 * 7 (Church), (\ x -> 42) omega: computed by the compiler
+---- \ n -> power 2 n, reflected
+-- type: Int -> Int
+-- data Bool = False | True
+\ (n :: Int) ->
+  letrec
+    power :: Int -> Int = \ (e :: Int) ->
+        case e == 0 of
+          False -> let x :: Int = e - 1
+            in let x_1 :: Int = power x
+               in let x_2 :: Int = 2 * x_1
+                  in x_2
+          True -> 1
+  in power n
+---- factorial 10, toInt (times six seven), (\ x -> 42) omega: computed by the compiler
 -- type: Int
 3628800
 -- type: Int
@@ -135,4 +148,5 @@ int64_t factorial(int64_t n) {
 [1,1,120,3628800,479001600]
 [0,1,1,610]
 (0,2440)
+[1,2,1024,1048576]
 (3628800,42,42)

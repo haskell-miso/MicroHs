@@ -16,7 +16,7 @@
                   False -> fetch r (a `quot` 2)
                   True -> fetch l (a `quot` 2)
               True -> c
-          _ -> fail "\"./LowFutamuraLazyMonadic.hs\",893:27"
+          _ -> fail "\"./LowFutamuraLazyMonadic.hs\",1006:27"
   in letrec
        store :: Heap -> Int -> Cell -> Heap = \ (h_1 :: Heap) (a_1 :: Int) (c_1 :: Cell) ->
            case h_1 of
@@ -50,10 +50,10 @@
                                                                             St next_1 h_5 -> let s1_1 :: St = St (next_1 + 1) (store h_5 next_1 (Thunk 4 (ICons t (ICons t_1 INil))))
                                                                               in let x :: RV = RCons next next_1
                                                                                  in Res x s1_1
-                                                                 _ -> fail "\"./LowFutamuraLazyMonadic.hs\",420:41"
-                                                      _ -> fail "\"./LowFutamuraLazyMonadic.hs\",420:41"
-                                           _ -> fail "\"./LowFutamuraLazyMonadic.hs\",451:39"
-                                       _ -> fail "\"./LowFutamuraLazyMonadic.hs\",451:39"
+                                                                 _ -> fail "\"./LowFutamuraLazyMonadic.hs\",521:41"
+                                                      _ -> fail "\"./LowFutamuraLazyMonadic.hs\",521:41"
+                                           _ -> fail "\"./LowFutamuraLazyMonadic.hs\",552:39"
+                                       _ -> fail "\"./LowFutamuraLazyMonadic.hs\",552:39"
                                    True -> case xs of
                                        ICons y_2 ys_2 -> case ys_2 of
                                            ICons y_3 ys_3 -> let x1_12 :: Res = rt 0 y_2 INil st
@@ -64,10 +64,10 @@
                                                              RInt i -> case v_3 of
                                                                  RInt i_1 -> let x_1 :: Int = i + i_1
                                                                    in Res (RInt x_1) st_4
-                                                                 _ -> fail "\"./LowFutamuraLazyMonadic.hs\",421:37"
-                                                             _ -> fail "\"./LowFutamuraLazyMonadic.hs\",421:37"
-                                           _ -> fail "\"./LowFutamuraLazyMonadic.hs\",451:39"
-                                       _ -> fail "\"./LowFutamuraLazyMonadic.hs\",451:39"
+                                                                 _ -> fail "\"./LowFutamuraLazyMonadic.hs\",522:37"
+                                                             _ -> fail "\"./LowFutamuraLazyMonadic.hs\",522:37"
+                                           _ -> fail "\"./LowFutamuraLazyMonadic.hs\",552:39"
+                                       _ -> fail "\"./LowFutamuraLazyMonadic.hs\",552:39"
                                True -> case xs of
                                    ICons y_4 ys_4 -> let x1_17 :: Res = rt 0 y_4 INil st
                                      in case x1_17 of
@@ -82,15 +82,15 @@
                                                                    St next_3 h_9 -> let s1_3 :: St = St (next_3 + 1) (store h_9 next_3 (Thunk 4 (ICons t_2 (ICons t_3 INil))))
                                                                      in let x_2 :: RV = RCons next_2 next_3
                                                                         in Res x_2 s1_3
-                                                        _ -> fail "\"./LowFutamuraLazyMonadic.hs\",420:41"
+                                                        _ -> fail "\"./LowFutamuraLazyMonadic.hs\",521:41"
                                                 in case v_4 of
                                                      RNil -> j RNil st_5
                                                      RCons h_10 t_4 -> let x1_23 :: Res = rt 0 t_4 INil st_5
                                                        in case x1_23 of
                                                             Res v_6 st_7 -> j v_6 st_7
-                                                     _ -> fail "\"./LowFutamuraLazyMonadic.hs\",420:41"
-                                              _ -> fail "\"./LowFutamuraLazyMonadic.hs\",420:41"
-                                   _ -> fail "\"./LowFutamuraLazyMonadic.hs\",451:39"
+                                                     _ -> fail "\"./LowFutamuraLazyMonadic.hs\",521:41"
+                                              _ -> fail "\"./LowFutamuraLazyMonadic.hs\",521:41"
+                                   _ -> fail "\"./LowFutamuraLazyMonadic.hs\",552:39"
                            True -> case xs of
                                ICons y_5 ys_5 -> case st of
                                    St next_4 h_11 -> let s1_4 :: St = St (next_4 + 1) (store h_11 next_4 (Done (RInt 1)))
@@ -98,7 +98,7 @@
                                           St next_5 h_12 -> let s1_5 :: St = St (next_5 + 1) (store h_12 next_5 (Thunk 2 (ICons y_5 INil)))
                                             in let x_3 :: RV = RCons next_4 next_5
                                                in Res x_3 s1_5
-                               _ -> fail "\"./LowFutamuraLazyMonadic.hs\",451:39"
+                               _ -> fail "\"./LowFutamuraLazyMonadic.hs\",552:39"
                        True -> case xs of
                            ICons y_6 ys_6 -> case st of
                                St next_6 h_13 -> let s1_6 :: St = St (next_6 + 1) (store h_13 next_6 (Done (RInt 0)))
@@ -106,7 +106,7 @@
                                       St next_7 h_14 -> let s1_7 :: St = St (next_7 + 1) (store h_14 next_7 (Thunk 1 (ICons y_6 INil)))
                                         in let x_4 :: RV = RCons next_6 next_7
                                            in Res x_4 s1_7
-                           _ -> fail "\"./LowFutamuraLazyMonadic.hs\",451:39"
+                           _ -> fail "\"./LowFutamuraLazyMonadic.hs\",552:39"
                 True -> case st of
                     St x3 h_15 -> let x1_31 :: Cell = fetch h_15 a_2
                       in case x1_31 of
@@ -129,21 +129,28 @@
                                                    RNil -> Res (RInt 0) st_9
                                                    RCons h_18 t_5 -> let x_5 :: Int = n_1 - 1
                                                      in nth x_5 t_5 st_9
-                                                   _ -> fail "\"./LowFutamuraLazyMonadic.hs\",420:41"
+                                                   _ -> fail "\"./LowFutamuraLazyMonadic.hs\",521:41"
                                         True -> let x1_38 :: Res = rt 0 xs_1 INil st_8
                                           in case x1_38 of
                                                Res v_10 st_10 -> case v_10 of
                                                    RNil -> Res (RInt 0) st_10
                                                    RCons h_19 t_6 -> rt 0 h_19 INil st_10
-                                                   _ -> fail "\"./LowFutamuraLazyMonadic.hs\",420:41"
+                                                   _ -> fail "\"./LowFutamuraLazyMonadic.hs\",521:41"
                                 in nth n next_8 s1_9
            in case x1_40 of
                 Res v_11 x4 -> case v_11 of
                     RInt i_2 -> i_2
-                    _ -> fail "\"./LowFutamuraLazyMonadic.hs\",915:39"
+                    _ -> fail "\"./LowFutamuraLazyMonadic.hs\",1027:39"
 ---- pfibs, compact C
 #include <stdint.h>
 #include <stdlib.h>
+enum { Cell_Thunk = 0, Cell_Done = 1 };
+enum { Ints_INil = 0, Ints_ICons = 1 };
+enum { RV_RInt = 0, RV_RNil = 1, RV_RCons = 2 };
+enum { Heap_Empty = 0, Heap_Node = 1 };
+enum { Bool_False = 0, Bool_True = 1 };
+enum { Res_Res = 0 };
+enum { St_St = 0 };
 typedef struct Cell Cell; typedef struct Ints Ints; typedef struct RV RV; typedef struct Heap Heap; typedef struct Res Res; typedef struct St St;
 struct Cell { int tag; union { struct { int64_t f0; Ints * f1; } Thunk; struct { RV * f0; } Done; } u; };
 struct Ints { int tag; union { struct { int64_t f0; Ints * f1; } ICons; } u; };
@@ -151,17 +158,17 @@ struct RV { int tag; union { struct { int64_t f0; } RInt; struct { int64_t f0; i
 struct Heap { int tag; union { struct { Heap * f0; Cell * f1; Heap * f2; } Node; } u; };
 struct Res { int tag; union { struct { RV * f0; St * f1; } Res; } u; };
 struct St { int tag; union { struct { int64_t f0; Heap * f1; } St; } u; };
-static Cell *C_Thunk(int64_t a0, Ints * a1) { Cell *p = malloc(sizeof *p); p->tag = 0; p->u.Thunk.f0 = a0; p->u.Thunk.f1 = a1; return p; }
-static Cell *C_Done(RV * a0) { Cell *p = malloc(sizeof *p); p->tag = 1; p->u.Done.f0 = a0; return p; }
-static Ints *C_INil(void) { Ints *p = malloc(sizeof *p); p->tag = 0; return p; }
-static Ints *C_ICons(int64_t a0, Ints * a1) { Ints *p = malloc(sizeof *p); p->tag = 1; p->u.ICons.f0 = a0; p->u.ICons.f1 = a1; return p; }
-static RV *C_RInt(int64_t a0) { RV *p = malloc(sizeof *p); p->tag = 0; p->u.RInt.f0 = a0; return p; }
-static RV *C_RNil(void) { RV *p = malloc(sizeof *p); p->tag = 1; return p; }
-static RV *C_RCons(int64_t a0, int64_t a1) { RV *p = malloc(sizeof *p); p->tag = 2; p->u.RCons.f0 = a0; p->u.RCons.f1 = a1; return p; }
-static Heap *C_Empty(void) { Heap *p = malloc(sizeof *p); p->tag = 0; return p; }
-static Heap *C_Node(Heap * a0, Cell * a1, Heap * a2) { Heap *p = malloc(sizeof *p); p->tag = 1; p->u.Node.f0 = a0; p->u.Node.f1 = a1; p->u.Node.f2 = a2; return p; }
-static Res *C_Res(RV * a0, St * a1) { Res *p = malloc(sizeof *p); p->tag = 0; p->u.Res.f0 = a0; p->u.Res.f1 = a1; return p; }
-static St *C_St(int64_t a0, Heap * a1) { St *p = malloc(sizeof *p); p->tag = 0; p->u.St.f0 = a0; p->u.St.f1 = a1; return p; }
+static Cell *C_Thunk(int64_t a0, Ints * a1) { Cell *p = malloc(sizeof *p); p->tag = Cell_Thunk; p->u.Thunk.f0 = a0; p->u.Thunk.f1 = a1; return p; }
+static Cell *C_Done(RV * a0) { Cell *p = malloc(sizeof *p); p->tag = Cell_Done; p->u.Done.f0 = a0; return p; }
+static Ints *C_INil(void) { Ints *p = malloc(sizeof *p); p->tag = Ints_INil; return p; }
+static Ints *C_ICons(int64_t a0, Ints * a1) { Ints *p = malloc(sizeof *p); p->tag = Ints_ICons; p->u.ICons.f0 = a0; p->u.ICons.f1 = a1; return p; }
+static RV *C_RInt(int64_t a0) { RV *p = malloc(sizeof *p); p->tag = RV_RInt; p->u.RInt.f0 = a0; return p; }
+static RV *C_RNil(void) { RV *p = malloc(sizeof *p); p->tag = RV_RNil; return p; }
+static RV *C_RCons(int64_t a0, int64_t a1) { RV *p = malloc(sizeof *p); p->tag = RV_RCons; p->u.RCons.f0 = a0; p->u.RCons.f1 = a1; return p; }
+static Heap *C_Empty(void) { Heap *p = malloc(sizeof *p); p->tag = Heap_Empty; return p; }
+static Heap *C_Node(Heap * a0, Cell * a1, Heap * a2) { Heap *p = malloc(sizeof *p); p->tag = Heap_Node; p->u.Node.f0 = a0; p->u.Node.f1 = a1; p->u.Node.f2 = a2; return p; }
+static Res *C_Res(RV * a0, St * a1) { Res *p = malloc(sizeof *p); p->tag = Res_Res; p->u.Res.f0 = a0; p->u.Res.f1 = a1; return p; }
+static St *C_St(int64_t a0, Heap * a1) { St *p = malloc(sizeof *p); p->tag = St_St; p->u.St.f0 = a0; p->u.St.f1 = a1; return p; }
 static Cell * fetch(Heap * h, int64_t a);
 static Cell * fetch(Heap * h, int64_t a) {
   if ((a == 1)) {
@@ -174,7 +181,7 @@ static Cell * fetch(Heap * h, int64_t a) {
 }
 static Heap * store(Heap * h_1, int64_t a_1, Cell * c_1);
 static Heap * store(Heap * h_1, int64_t a_1, Cell * c_1) {
-  if (h_1->tag == 0) return C_Node(C_Empty(), c_1, C_Empty());
+  if (h_1->tag == Heap_Empty) return C_Node(C_Empty(), c_1, C_Empty());
   Heap * l_1 = h_1->u.Node.f0;
   Cell * c0 = h_1->u.Node.f1;
   Heap * r_1 = h_1->u.Node.f2;
@@ -188,7 +195,7 @@ static Heap * store(Heap * h_1, int64_t a_1, Cell * c_1) {
 }
 static Res * rt(int64_t c_2, int64_t a_2, Ints * xs, St * st);
 static Res * j(int64_t h_6, int64_t t_2, RV * v_5, St * st_6) {
-  if (v_5->tag == 1) return C_Res(C_RNil(), st_6);
+  if (v_5->tag == RV_RNil) return C_Res(C_RNil(), st_6);
   int64_t next_2 = st_6->u.St.f0;
   St * s1_2 = C_St((next_2 + 1), store(st_6->u.St.f1, next_2, C_Thunk(3, C_ICons(h_6, C_ICons(v_5->u.RCons.f0, C_INil())))));
   int64_t next_3 = s1_2->u.St.f0;
@@ -198,7 +205,7 @@ static Res * j(int64_t h_6, int64_t t_2, RV * v_5, St * st_6) {
 static Res * rt(int64_t c_2, int64_t a_2, Ints * xs, St * st) {
   if ((c_2 == 0)) {
     Cell * x1_31 = fetch(st->u.St.f1, a_2);
-    if (x1_31->tag == 1) return C_Res(x1_31->u.Done.f0, st);
+    if (x1_31->tag == Cell_Done) return C_Res(x1_31->u.Done.f0, st);
     Res * x1_32 = rt((x1_31->u.Thunk.f0 + 1), 0, x1_31->u.Thunk.f1, st);
     RV * v_8 = x1_32->u.Res.f0;
     St * s0 = x1_32->u.Res.f1;
@@ -221,7 +228,7 @@ static Res * rt(int64_t c_2, int64_t a_2, Ints * xs, St * st) {
       Res * x1_17 = rt(0, xs->u.ICons.f0, C_INil(), st);
       RV * v_4 = x1_17->u.Res.f0;
       St * st_5 = x1_17->u.Res.f1;
-      if (v_4->tag == 1) return C_Res(C_RNil(), st_5);
+      if (v_4->tag == RV_RNil) return C_Res(C_RNil(), st_5);
       Res * x1_23 = rt(0, v_4->u.RCons.f1, C_INil(), st_5);
       return j(v_4->u.RCons.f0, v_4->u.RCons.f1, x1_23->u.Res.f0, x1_23->u.Res.f1);
     } else if ((d == 3)) {
@@ -236,11 +243,11 @@ static Res * rt(int64_t c_2, int64_t a_2, Ints * xs, St * st) {
       Res * x1_4 = rt(0, xs->u.ICons.f0, C_INil(), st);
       St * st_1 = x1_4->u.Res.f1;
       RV * s5 = x1_4->u.Res.f0;
-      if (s5->tag == 1) return C_Res(C_RNil(), st_1);
+      if (s5->tag == RV_RNil) return C_Res(C_RNil(), st_1);
       Res * x1_6 = rt(0, s4->u.ICons.f0, C_INil(), st_1);
       St * st_2 = x1_6->u.Res.f1;
       RV * s6 = x1_6->u.Res.f0;
-      if (s6->tag == 1) return C_Res(C_RNil(), st_2);
+      if (s6->tag == RV_RNil) return C_Res(C_RNil(), st_2);
       int64_t next = st_2->u.St.f0;
       St * s1 = C_St((next + 1), store(st_2->u.St.f1, next, C_Thunk(3, C_ICons(s5->u.RCons.f0, C_ICons(s6->u.RCons.f0, C_INil())))));
       int64_t next_1 = s1->u.St.f0;
@@ -255,13 +262,13 @@ static Res * nth(int64_t n_1, int64_t xs_1, St * st_8) {
     Res * x1_38 = rt(0, xs_1, C_INil(), st_8);
     St * st_10 = x1_38->u.Res.f1;
     RV * s7 = x1_38->u.Res.f0;
-    if (s7->tag == 1) return C_Res(C_RInt(0), st_10);
+    if (s7->tag == RV_RNil) return C_Res(C_RInt(0), st_10);
     return rt(0, s7->u.RCons.f0, C_INil(), st_10);
   } else {
     Res * x1_36 = rt(0, xs_1, C_INil(), st_8);
     St * st_9 = x1_36->u.Res.f1;
     RV * s8 = x1_36->u.Res.f0;
-    if (s8->tag == 1) return C_Res(C_RInt(0), st_9);
+    if (s8->tag == RV_RNil) return C_Res(C_RInt(0), st_9);
     return nth((n_1 - 1), s8->u.RCons.f1, st_9);
   }
 }
@@ -278,22 +285,26 @@ int64_t pfibs(int64_t n) {
 ---- pfibs, compact C with a mutable heap
 #include <stdint.h>
 #include <stdlib.h>
+enum { Cell_Thunk = 0, Cell_Done = 1 };
+enum { Ints_INil = 0, Ints_ICons = 1 };
+enum { RV_RInt = 0, RV_RNil = 1, RV_RCons = 2 };
+enum { Bool_False = 0, Bool_True = 1 };
 typedef struct Cell Cell; typedef struct Ints Ints; typedef struct RV RV;
 struct Cell { int tag; union { struct { int64_t f0; Ints * f1; } Thunk; struct { RV * f0; } Done; } u; };
 struct Ints { int tag; union { struct { int64_t f0; Ints * f1; } ICons; } u; };
 struct RV { int tag; union { struct { int64_t f0; } RInt; struct { int64_t f0; int64_t f1; } RCons; } u; };
-static Cell *C_Thunk(int64_t a0, Ints * a1) { Cell *p = malloc(sizeof *p); p->tag = 0; p->u.Thunk.f0 = a0; p->u.Thunk.f1 = a1; return p; }
-static Cell *C_Done(RV * a0) { Cell *p = malloc(sizeof *p); p->tag = 1; p->u.Done.f0 = a0; return p; }
-static Ints *C_INil(void) { Ints *p = malloc(sizeof *p); p->tag = 0; return p; }
-static Ints *C_ICons(int64_t a0, Ints * a1) { Ints *p = malloc(sizeof *p); p->tag = 1; p->u.ICons.f0 = a0; p->u.ICons.f1 = a1; return p; }
-static RV *C_RInt(int64_t a0) { RV *p = malloc(sizeof *p); p->tag = 0; p->u.RInt.f0 = a0; return p; }
-static RV *C_RNil(void) { RV *p = malloc(sizeof *p); p->tag = 1; return p; }
-static RV *C_RCons(int64_t a0, int64_t a1) { RV *p = malloc(sizeof *p); p->tag = 2; p->u.RCons.f0 = a0; p->u.RCons.f1 = a1; return p; }
+static Cell *C_Thunk(int64_t a0, Ints * a1) { Cell *p = malloc(sizeof *p); p->tag = Cell_Thunk; p->u.Thunk.f0 = a0; p->u.Thunk.f1 = a1; return p; }
+static Cell *C_Done(RV * a0) { Cell *p = malloc(sizeof *p); p->tag = Cell_Done; p->u.Done.f0 = a0; return p; }
+static Ints *C_INil(void) { Ints *p = malloc(sizeof *p); p->tag = Ints_INil; return p; }
+static Ints *C_ICons(int64_t a0, Ints * a1) { Ints *p = malloc(sizeof *p); p->tag = Ints_ICons; p->u.ICons.f0 = a0; p->u.ICons.f1 = a1; return p; }
+static RV *C_RInt(int64_t a0) { RV *p = malloc(sizeof *p); p->tag = RV_RInt; p->u.RInt.f0 = a0; return p; }
+static RV *C_RNil(void) { RV *p = malloc(sizeof *p); p->tag = RV_RNil; return p; }
+static RV *C_RCons(int64_t a0, int64_t a1) { RV *p = malloc(sizeof *p); p->tag = RV_RCons; p->u.RCons.f0 = a0; p->u.RCons.f1 = a1; return p; }
 static Cell *heap[1 << 20]; static int64_t hp;
 static int64_t alloc(Cell *c) { heap[hp] = c; return hp++; }
 static RV * rt(int64_t c_2, int64_t a_2, Ints * xs);
 static RV * j(int64_t h_6, int64_t t_2, RV * v_5) {
-  if (v_5->tag == 1) return C_RNil();
+  if (v_5->tag == RV_RNil) return C_RNil();
   int64_t next_2 = alloc(C_Thunk(3, C_ICons(h_6, C_ICons(v_5->u.RCons.f0, C_INil()))));
   int64_t next_3 = alloc(C_Thunk(4, C_ICons(t_2, C_ICons(v_5->u.RCons.f1, C_INil()))));
   return C_RCons(next_2, next_3);
@@ -301,7 +312,7 @@ static RV * j(int64_t h_6, int64_t t_2, RV * v_5) {
 static RV * rt(int64_t c_2, int64_t a_2, Ints * xs) {
   if ((c_2 == 0)) {
     Cell * x1_31 = heap[a_2];
-    if (x1_31->tag == 1) return x1_31->u.Done.f0;
+    if (x1_31->tag == Cell_Done) return x1_31->u.Done.f0;
     RV * x1_32 = rt((x1_31->u.Thunk.f0 + 1), 0, x1_31->u.Thunk.f1);
     heap[a_2] = C_Done(x1_32);
     return x1_32;
@@ -317,7 +328,7 @@ static RV * rt(int64_t c_2, int64_t a_2, Ints * xs) {
       return C_RCons(next_4, next_5);
     } else if ((d == 2)) {
       RV * x1_17 = rt(0, xs->u.ICons.f0, C_INil());
-      if (x1_17->tag == 1) return C_RNil();
+      if (x1_17->tag == RV_RNil) return C_RNil();
       RV * x1_23 = rt(0, x1_17->u.RCons.f1, C_INil());
       return j(x1_17->u.RCons.f0, x1_17->u.RCons.f1, x1_23);
     } else if ((d == 3)) {
@@ -328,9 +339,9 @@ static RV * rt(int64_t c_2, int64_t a_2, Ints * xs) {
     } else {
       Ints * s1 = xs->u.ICons.f1;
       RV * x1_4 = rt(0, xs->u.ICons.f0, C_INil());
-      if (x1_4->tag == 1) return C_RNil();
+      if (x1_4->tag == RV_RNil) return C_RNil();
       RV * x1_6 = rt(0, s1->u.ICons.f0, C_INil());
-      if (x1_6->tag == 1) return C_RNil();
+      if (x1_6->tag == RV_RNil) return C_RNil();
       int64_t next = alloc(C_Thunk(3, C_ICons(x1_4->u.RCons.f0, C_ICons(x1_6->u.RCons.f0, C_INil()))));
       int64_t next_1 = alloc(C_Thunk(4, C_ICons(x1_4->u.RCons.f1, C_ICons(x1_6->u.RCons.f1, C_INil()))));
       return C_RCons(next, next_1);
@@ -341,11 +352,11 @@ static RV * nth(int64_t n_1, int64_t xs_1);
 static RV * nth(int64_t n_1, int64_t xs_1) {
   if ((n_1 == 0)) {
     RV * x1_38 = rt(0, xs_1, C_INil());
-    if (x1_38->tag == 1) return C_RInt(0);
+    if (x1_38->tag == RV_RNil) return C_RInt(0);
     return rt(0, x1_38->u.RCons.f0, C_INil());
   } else {
     RV * x1_36 = rt(0, xs_1, C_INil());
-    if (x1_36->tag == 1) return C_RInt(0);
+    if (x1_36->tag == RV_RNil) return C_RInt(0);
     return nth((n_1 - 1), x1_36->u.RCons.f1);
   }
 }
@@ -357,6 +368,157 @@ int64_t pfibs(int64_t n) {
   x1_40 = nth(n, next_8);
   return x1_40->u.RInt.f0;
 }
+---- psquares = compileFun (\ input -> letrec nats = 0 : map (\ x -> x + 1) nats in nth input (map (\ x -> x * x) nats)), reflected
+-- type: Int -> Int
+-- data Cell = Thunk Int Ints | Done RV
+-- data Ints = INil | ICons Int Ints
+-- data RV = RInt Int | RNil | RCons Int Int
+-- data Heap = Empty | Node Heap Cell Heap
+-- data Bool = False | True
+-- data Res = Res RV St
+-- data St = St Int Heap
+\ (n :: Int) ->
+  letrec
+    fetch :: Heap -> Int -> Cell = \ (h :: Heap) (a :: Int) ->
+        case h of
+          Node l c r -> case a == 1 of
+              False -> case (a - (2 * (a `quot` 2))) == 0 of
+                  False -> fetch r (a `quot` 2)
+                  True -> fetch l (a `quot` 2)
+              True -> c
+          _ -> fail "\"./LowFutamuraLazyMonadic.hs\",1006:27"
+  in letrec
+       store :: Heap -> Int -> Cell -> Heap = \ (h_1 :: Heap) (a_1 :: Int) (c_1 :: Cell) ->
+           case h_1 of
+             Empty -> Node Empty c_1 Empty
+             Node l_1 c0 r_1 -> case a_1 == 1 of
+                 False -> case (a_1 - (2 * (a_1 `quot` 2))) == 0 of
+                     False -> Node l_1 c0 (store r_1 (a_1 `quot` 2) c_1)
+                     True -> Node (store l_1 (a_1 `quot` 2) c_1) c0 r_1
+                 True -> Node l_1 c_1 r_1
+     in letrec
+          rt :: Int -> Int -> Ints -> St -> Res = \ (c_2 :: Int) (a_2 :: Int) (xs :: Ints) (st :: St) ->
+              case c_2 == 0 of
+                False -> let d :: Int = c_2 - 1
+                  in case d == 0 of
+                       False -> case d == 1 of
+                           False -> case d == 2 of
+                               False -> case d == 3 of
+                                   False -> case d == 4 of
+                                       False -> case xs of
+                                           ICons y ys -> let x1_3 :: Res = rt 0 y INil st
+                                             in case x1_3 of
+                                                  Res v st_1 -> case v of
+                                                      RNil -> Res RNil st_1
+                                                      RCons h_2 t -> case st_1 of
+                                                          St next h_3 -> let s1 :: St = St (next + 1) (store h_3 next (Thunk 4 (ICons h_2 INil)))
+                                                            in case s1 of
+                                                                 St next_1 h_4 -> let s1_1 :: St = St (next_1 + 1) (store h_4 next_1 (Thunk 5 (ICons t INil)))
+                                                                   in let x :: RV = RCons next next_1
+                                                                      in Res x s1_1
+                                                      _ -> fail "\"./LowFutamuraLazyMonadic.hs\",521:41"
+                                           _ -> fail "\"./LowFutamuraLazyMonadic.hs\",552:39"
+                                       True -> case xs of
+                                           ICons y_1 ys_1 -> let x1_8 :: Res = rt 0 y_1 INil st
+                                             in case x1_8 of
+                                                  Res v_1 st_2 -> case v_1 of
+                                                      RInt i -> let x_1 :: Int = i + 1
+                                                        in Res (RInt x_1) st_2
+                                                      _ -> fail "\"./LowFutamuraLazyMonadic.hs\",522:37"
+                                           _ -> fail "\"./LowFutamuraLazyMonadic.hs\",552:39"
+                                   True -> case xs of
+                                       ICons y_2 ys_2 -> let x1_11 :: Res = rt 0 y_2 INil st
+                                         in case x1_11 of
+                                              Res v_2 st_3 -> case v_2 of
+                                                  RNil -> Res RNil st_3
+                                                  RCons h_5 t_1 -> case st_3 of
+                                                      St next_2 h_6 -> let s1_2 :: St = St (next_2 + 1) (store h_6 next_2 (Thunk 4 (ICons h_5 INil)))
+                                                        in case s1_2 of
+                                                             St next_3 h_7 -> let s1_3 :: St = St (next_3 + 1) (store h_7 next_3 (Thunk 5 (ICons t_1 INil)))
+                                                               in let x_2 :: RV = RCons next_2 next_3
+                                                                  in Res x_2 s1_3
+                                                  _ -> fail "\"./LowFutamuraLazyMonadic.hs\",521:41"
+                                       _ -> fail "\"./LowFutamuraLazyMonadic.hs\",552:39"
+                               True -> case xs of
+                                   ICons y_3 ys_3 -> let x1_16 :: Res = rt 0 y_3 INil st
+                                     in case x1_16 of
+                                          Res v_3 st_4 -> case v_3 of
+                                              RNil -> Res RNil st_4
+                                              RCons h_8 t_2 -> case st_4 of
+                                                  St next_4 h_9 -> let s1_4 :: St = St (next_4 + 1) (store h_9 next_4 (Thunk 1 (ICons h_8 INil)))
+                                                    in case s1_4 of
+                                                         St next_5 h_10 -> let s1_5 :: St = St (next_5 + 1) (store h_10 next_5 (Thunk 2 (ICons t_2 INil)))
+                                                           in let x_3 :: RV = RCons next_4 next_5
+                                                              in Res x_3 s1_5
+                                              _ -> fail "\"./LowFutamuraLazyMonadic.hs\",521:41"
+                                   _ -> fail "\"./LowFutamuraLazyMonadic.hs\",552:39"
+                           True -> case xs of
+                               ICons y_4 ys_4 -> let x1_21 :: Res = rt 0 y_4 INil st
+                                 in case x1_21 of
+                                      Res v_4 st_5 -> case v_4 of
+                                          RInt i_1 -> case v_4 of
+                                              RInt i_2 -> let x_4 :: Int = i_1 * i_2
+                                                in Res (RInt x_4) st_5
+                                              _ -> fail "\"./LowFutamuraLazyMonadic.hs\",522:37"
+                                          _ -> fail "\"./LowFutamuraLazyMonadic.hs\",522:37"
+                               _ -> fail "\"./LowFutamuraLazyMonadic.hs\",552:39"
+                       True -> case xs of
+                           ICons y_5 ys_5 -> case st of
+                               St next_6 h_11 -> let s1_6 :: St = St (next_6 + 1) (store h_11 next_6 (Done (RInt 0)))
+                                 in case s1_6 of
+                                      St next_7 h_12 -> let s1_7 :: St = St (next_7 + 1) (store h_12 next_7 (Thunk 3 (ICons y_5 INil)))
+                                        in let x_5 :: RV = RCons next_6 next_7
+                                           in Res x_5 s1_7
+                           _ -> fail "\"./LowFutamuraLazyMonadic.hs\",552:39"
+                True -> case st of
+                    St x3 h_13 -> let x1_28 :: Cell = fetch h_13 a_2
+                      in case x1_28 of
+                           Done v_5 -> Res v_5 st
+                           Thunk d_1 cs -> let x1_29 :: Res = rt (d_1 + 1) 0 cs st
+                             in case x1_29 of
+                                  Res v_6 st1 -> case st1 of
+                                      St n1 h1 -> Res v_6 (St n1 (store h1 a_2 (Done v_6)))
+        in let x1_42 :: Res = let x1_31 :: St = St 1 Empty
+               in case x1_31 of
+                    St next_8 h_14 -> let s1_8 :: St = St (next_8 + 1) (store h_14 next_8 (Done RNil))
+                      in case s1_8 of
+                           St next_9 h_15 -> let s1_9 :: St = St next_9 (store h_15 next_8 (Thunk 0 (ICons next_8 INil)))
+                             in let x1_33 :: Res = rt 0 next_8 INil s1_9
+                                in case x1_33 of
+                                     Res v_7 st_6 -> let j :: RV -> St -> Res = \ (v_8 :: RV) (st_7 :: St) ->
+                                             case st_7 of
+                                               St next_10 h_16 -> let s1_10 :: St = St (next_10 + 1) (store h_16 next_10 (Done v_8))
+                                                 in letrec
+                                                      f :: Int -> Int -> St -> Res = \ (n_1 :: Int) (xs_1 :: Int) (st_8 :: St) ->
+                                                          case n_1 == 0 of
+                                                            False -> let x1_35 :: Res = rt 0 xs_1 INil st_8
+                                                              in case x1_35 of
+                                                                   Res v_9 st_9 -> case v_9 of
+                                                                       RNil -> Res (RInt 0) st_9
+                                                                       RCons h_17 t_3 -> let x_6 :: Int = n_1 - 1
+                                                                         in f x_6 t_3 st_9
+                                                                       _ -> fail "\"./LowFutamuraLazyMonadic.hs\",521:41"
+                                                            True -> let x1_37 :: Res = rt 0 xs_1 INil st_8
+                                                              in case x1_37 of
+                                                                   Res v_10 st_10 -> case v_10 of
+                                                                       RNil -> Res (RInt 0) st_10
+                                                                       RCons h_18 t_4 -> rt 0 h_18 INil st_10
+                                                                       _ -> fail "\"./LowFutamuraLazyMonadic.hs\",521:41"
+                                                    in f n next_10 s1_10
+                                       in case v_7 of
+                                            RNil -> j RNil st_6
+                                            RCons h_19 t_5 -> case st_6 of
+                                                St next_11 h_20 -> let s1_11 :: St = St (next_11 + 1) (store h_20 next_11 (Thunk 1 (ICons h_19 INil)))
+                                                  in case s1_11 of
+                                                       St next_12 h_21 -> let s1_12 :: St = St (next_12 + 1) (store h_21 next_12 (Thunk 2 (ICons t_5 INil)))
+                                                         in let x_7 :: RV = RCons next_11 next_12
+                                                            in j x_7 s1_12
+                                            _ -> fail "\"./LowFutamuraLazyMonadic.hs\",521:41"
+           in case x1_42 of
+                Res v_11 x4 -> case v_11 of
+                    RInt i_3 -> i_3
+                    _ -> fail "\"./LowFutamuraLazyMonadic.hs\",1027:39"
 ---- run
 [0,1,1,2,3,5,8,13,21,34,55,89,144,233,377,610,987,1597,2584,4181,6765]
 102334155
+[0,1,4,9,16,25,36,49,64,81,100]

@@ -1,4 +1,5 @@
 module LowFutamuraMonadic(main) where
+import Data.Char(isAlpha, isAlphaNum, isDigit, isSpace)
 import Data.List(nub, nubBy)
 import Data.Maybe(fromMaybe)
 import Staged.Low
@@ -20,6 +21,14 @@ import Staged.Low.C(toC)
 --    compiler uses code: bind it, branch on it, make a join point, define a
 --    recursive function.  The code generator and the analysis that finds the
 --    recursive functions are two instances of it.
+--
+--  * A small parser for terms (at the end), so that the examples can be
+--    written as text, e.g. fix (\ fact n -> if0 n then 1 else n * fact (n - 1)).
+--
+-- The parts: terms; compile time values (V, E) and their shapes (Sh, ShE);
+-- the partial evaluation monads, with the state along a path (GS), the
+-- context (Ctx), and the analysis; the interpreter; the projections; the
+-- parser and the examples.
 
 -------------------------------------------------------------------------------
 -- Terms
@@ -113,12 +122,33 @@ look x env = fromMaybe (error ("peval: unbound " ++ show x)) (lookup x env)
 restrict :: [Id] -> Env -> Env
 restrict xs env = [ (x, e) | x <- xs, Just e <- [lookup x env] ]
 
--- The shape of a value: what is known at compile time.  Sh Int identifies
--- run time integers (for thunks forced on a path), Sh () abstracts them
--- (for the arguments of recursive functions).
-data Sh d = SInt Int | SDyn d | SClo Id [(Id, ShE d)]
+-- Shapes
+--
+-- The shape of a value is the part of it that is known at compile time,
+-- without the terms: a closure is its binder (which names its body, since
+-- ids are unique) and the shapes of the entries it captures, a thunk is its
+-- label and the shapes of its entries.  Shapes can be compared, unlike
+-- values, which contain code; they are the keys of two tables:
+--
+--  * Sh Int, where a run time integer is the number of its VDyn, is the key
+--    of a thunk forced on a path (gsForced): forcing an equal thunk again
+--    (the same code, with the same compile time values and the same run time
+--    integers) reuses the value, which is call by need.
+--
+--  * Sh (), where all run time integers are the same, is the key of an
+--    application: a closure with its argument (see call).  It is what a
+--    specialised function knows statically; the run time integers are the
+--    arguments of the function.  So all the applications fact (n - 1) of
+--    factorial have the same key, and the compiler finds the recursion when
+--    it unfolds an application with a key it is already unfolding.
+--    Integers known at compile time are part of the key, so the function is
+--    specialised to them (the power example).
+data Sh d = SInt Int                   -- an integer known at compile time
+          | SDyn d                     -- a run time integer
+          | SClo Id [(Id, ShE d)]      -- a closure: its binder, and its environment
   deriving (Eq)
-data ShE d = SVal (Sh d) | SThk Id [(Id, ShE d)]
+data ShE d = SVal (Sh d)               -- a value
+           | SThk Id [(Id, ShE d)]     -- a thunk: its label, and its environment
   deriving (Eq)
 
 shapeV :: (Int -> d) -> V -> Sh d
@@ -164,8 +194,28 @@ dynNamesE names x e =
 nameOf :: [(Id, String)] -> Id -> String
 nameOf names x = fromMaybe "x" (lookup x names)
 
--- An environment of a shape, with the given run time integers
-rebuild :: [(Id, Term)] -> [(Id, ShE ())] -> [Low Int] -> Int -> (Env, [Low Int], Int)
+-- Rebuilding an environment from its shape
+--
+-- The body of a recursive function is evaluated once, for all the
+-- applications of its key, so it cannot use the environment of the
+-- application that defined it: its run time integers are that call's
+-- arguments.  rebuild makes the environment that the body is evaluated in,
+-- from the shape (Sh ()) of the closure's environment and the parameters of
+-- the function:
+--
+--  * a known integer (SInt) is itself;
+--  * a run time integer (SDyn) is the next parameter, with a new number for
+--    its VDyn (the third argument and result: the next number);
+--  * a closure or a thunk is rebuilt from its label, and its term looked up
+--    in the table of codes (shapes have no terms), with its environment
+--    rebuilt recursively.
+--
+-- The parameters are used in the order of dynsEnv (depth first, left to
+-- right), which is the order of the arguments that a call passes, and of the
+-- names that dynNamesEnv gives them.  rebuild returns the environment, the
+-- unused parameters, and the next number; rebuildE does the same for an
+-- entry.
+rebuild ::[(Id, Term)] -> [(Id, ShE ())] -> [Low Int] -> Int -> (Env, [Low Int], Int)
 rebuild tbl ss ps i =
   case ss of
     [] -> ([], ps, i)
@@ -205,24 +255,39 @@ callFn fn ps =
 -------------------------------------------------------------------------------
 -- Partial evaluation monads
 
--- The state along a path of the program: the next number for a run time
--- integer, the thunks forced on this path, the recursive functions in scope,
--- and the applications being unfolded
-data GS = GS Int [(ShE Int, V)] [(Sh (), Fn)] [Sh ()]
+-- The generation state, GS
+--
+-- What the compiler knows at a point of the generated code.  It is threaded
+-- along a path of the program (a sequence of lets): the monads pass it to
+-- the continuation, and both branches of a conditional start with the state
+-- before it, so what one branch learns is not used in the other, or after
+-- the join point.
+data GS = GS
+  { gsNext      :: Int             -- the number of the next run time integer (VDyn)
+  , gsForced    :: [(ShE Int, V)]  -- the thunks forced on this path, with their values:
+                                   -- the variables of the generated code that hold them
+  , gsFns       :: [(Sh (), Fn)]   -- the recursive functions in scope, by key: defined
+                                   -- before this point (or the one whose body this is)
+  , gsUnfolding :: [Sh ()]         -- the keys of the applications being unfolded here;
+                                   -- unfolding one of them again is a recursive application
+  }
 
--- The context: the shapes of the recursive functions (with the name of the
--- variable that the recursive call uses), the terms of the labels, and the
--- names of the ids
-data Ctx = Ctx [(Sh (), String)] [(Id, Term)] [(Id, String)]
+-- The state at the start of a program, numbering run time integers from i
+initGS :: Int -> GS
+initGS i = GS{ gsNext = i, gsForced = [], gsFns = [], gsUnfolding = [] }
 
-ctxRecs :: Ctx -> [(Sh (), String)]
-ctxRecs (Ctx recs _ _) = recs
-
-ctxCode :: Ctx -> [(Id, Term)]
-ctxCode (Ctx _ tbl _) = tbl
-
-ctxNames :: Ctx -> [(Id, String)]
-ctxNames (Ctx _ _ names) = names
+-- The context, Ctx
+--
+-- What is fixed for the whole program.  ctxRecs is the result of the
+-- analysis (see the projections): the keys of the applications that are
+-- recursive, which the code generator compiles to recursive functions
+-- instead of unfolding them.  Its name is the name of the variable the
+-- function is called through (fact in factorial), for the generated code.
+data Ctx = Ctx
+  { ctxRecs  :: [(Sh (), String)]  -- the recursive applications, with a name for their function
+  , ctxCode  :: [(Id, Term)]       -- the terms of the labels, for rebuild
+  , ctxNames :: [(Id, String)]     -- the source names of the ids, for the generated code
+  }
 
 -- The end of a block of code: a computation of type m End does not return,
 -- it ends with done, a join point, or a call
@@ -295,7 +360,25 @@ instance MonadPE (PE (Low Int)) where
   recCall _ _ = error "peval: a recursive application that the analysis did not find"
   done x = PE (\ _ _ _ -> x)
 
--- The analysis: only find the shapes of the recursive functions
+-- The analysis
+--
+-- The code generator works in one pass, in continuation passing style: when
+-- it meets an application, it must decide there whether to unfold it or to
+-- define a recursive function (a letrec around the code that follows).  But
+-- recursion only shows later, deeper in the unfolding, when the same key
+-- comes up again, and the code that would have to become a function is then
+-- already generated.  So the compiler runs the interpreter twice: first as
+-- the analysis, which finds the keys of the recursive applications, and then
+-- as the code generator, which knows them (ctxRecs) from the start.
+--
+-- The analysis is the same interpreter in a monad that generates no code:
+-- a let gives a dummy run time integer, a conditional runs both branches,
+-- a join point runs both the code after it and the block before it, and a
+-- recursive function runs its body.  Its result is the list of the keys of
+-- the recursive applications it met (recCall), with the name of the
+-- function.  It is run until it finds nothing new (see recursive), since a
+-- function body is evaluated in an environment rebuilt from a shape, where
+-- other applications can have new keys.
 instance MonadPE (PE [(Sh (), String)]) where
   askCtx = PE (\ c s k -> k c s)
   getGS = PE (\ _ s k -> k s s)
@@ -320,9 +403,8 @@ dummyFn = Fn1 [| \ x -> x |]
 newDyn :: MonadPE m => Low Int -> m V
 newDyn x = do
   s <- getGS
-  let GS i m fs as = s
-  putGS (GS (i + 1) m fs as)
-  pure (VDyn i x)
+  putGS s{ gsNext = gsNext s + 1 }
+  pure (VDyn (gsNext s) x)
 
 -- Bind run time integer code to a variable
 bindInt :: MonadPE m => Low Int -> m V
@@ -389,6 +471,7 @@ funName :: MonadPE m => Term -> m String
 funName t =
   case t of
     Var x -> do { c <- askCtx; pure (nameOf (ctxNames c) x) }
+    App f _ _ -> funName f            -- the head of an application of more arguments
     _ -> pure "f"
 
 -- The argument of an application: shared if it is a variable, a value if it
@@ -411,12 +494,11 @@ force e =
     EThk _ t env -> do
       let key = shapeE id e
       s <- getGS
-      let GS _ m _ _ = s
-      case lookup key m of
+      case lookup key (gsForced s) of
         Just v -> pure v
         Nothing -> do
           v <- eval t env
-          modifyGS (\ (GS i m' fs as) -> GS i ((key, v) : m') fs as)
+          modifyGS (\ s' -> s'{ gsForced = (key, v) : gsForced s' })
           pure v
 
 -- What applying a closure does
@@ -436,12 +518,11 @@ call fv a =
           ps = dynsEnv benv
       s <- getGS
       c <- askCtx
-      let GS _ _ fs as = s
-      pure $ case lookup key fs of
+      pure $ case lookup key (gsFns s) of
         Just fn -> Known fn ps
         Nothing
           | Just fname <- lookup key (ctxRecs c) -> Define fname key ps
-          | key `elem` as -> Again key
+          | key `elem` gsUnfolding s -> Again key
           | otherwise -> Unfold key b benv
     _ -> error "peval: applying an integer"
 
@@ -459,7 +540,7 @@ apply name fv a = do
     Unfold key b benv -> do
       as <- unfolding key
       v <- eval b benv
-      modifyGS (\ (GS i m fs _) -> GS i m fs as)
+      modifyGS (\ s -> s{ gsUnfolding = as })
       pure v
 
 applyT :: MonadPE m => String -> V -> E -> (Low Int -> m End) -> m End
@@ -481,9 +562,8 @@ applyT name fv a ret = do
 unfolding :: MonadPE m => Sh () -> m [Sh ()]
 unfolding key = do
   s <- getGS
-  let GS i m fs as = s
-  putGS (GS i m fs (key : as))
-  pure as
+  putGS s{ gsUnfolding = key : gsUnfolding s }
+  pure (gsUnfolding s)
 
 -- Define the recursive function of a shape: its body is the closure's body
 -- with the run time integers of the environment as arguments
@@ -495,12 +575,12 @@ define name key fv a =
       s <- getGS
       let benv = restrict (used b) ((x, a) : cenv)
           ss = shapeEnv (const ()) benv
-          GS i _ fs as = s
       fn <- recFun name (dynNamesEnv (ctxNames c) benv) (length (dynsEnv benv)) $ \ fn ps -> do
-              let (benv', _, i1) = rebuild (ctxCode c) ss ps i
-              putGS (GS i1 [] ((key, fn) : fs) as)
+              -- the body: nothing is forced yet, and the function itself is in scope
+              let (benv', _, i1) = rebuild (ctxCode c) ss ps (gsNext s)
+              putGS s{ gsNext = i1, gsForced = [], gsFns = (key, fn) : gsFns s }
               evalT b benv' done
-      modifyGS (\ (GS i' m fs' as') -> GS i' m ((key, fn) : fs') as')
+      modifyGS (\ s' -> s'{ gsFns = (key, fn) : gsFns s' })
       pure fn
     _ -> error "peval: applying an integer"
 
@@ -517,11 +597,12 @@ primL o x y =
 -------------------------------------------------------------------------------
 -- The projections
 
--- Find the shapes of the recursive functions: run the analysis until it
--- finds no new ones
+-- Find the keys of the recursive applications: run the analysis, with the
+-- ones found so far, until it finds no new ones
 recursive :: (Ctx -> [(Sh (), String)]) -> [(Id, Term)] -> [(Id, String)] -> [(Sh (), String)]
 recursive run tbl names = go []
-  where go recs = let new = [ r | r@(key, _) <- run (Ctx recs tbl names), key `notElem` map fst recs ] in
+  where go recs = let ctx = Ctx{ ctxRecs = recs, ctxCode = tbl, ctxNames = names }
+                      new = [ r | r@(key, _) <- run ctx, key `notElem` map fst recs ] in
                   if null new then recs else go (recs ++ nubBy (\ p q -> fst p == fst q) new)
 
 -- A program whose value is an integer
@@ -532,9 +613,8 @@ evalInt :: Fresh Term -> Low Int
 evalInt p =
   let (t, names) = runFresh p
       tbl = codes t
-      gs0 = GS 0 [] [] []
-      recs = recursive (\ c -> analyse (startInt t) c gs0) tbl names
-  in  genCode (startInt t) (Ctx recs tbl names) gs0
+      recs = recursive (\ c -> analyse (startInt t) c (initGS 0)) tbl names
+  in  genCode (startInt t) Ctx{ ctxRecs = recs, ctxCode = tbl, ctxNames = names } (initGS 0)
 
 -- A program whose value is a function of an integer
 startFun :: MonadPE m => Term -> Low Int -> m End
@@ -546,9 +626,8 @@ evalFun :: Fresh Term -> Low (Int -> Int)
 evalFun p =
   let (t, names) = runFresh p
       tbl = codes t
-      gs1 = GS 1 [] [] []
-      recs = recursive (\ c -> analyse (startFun t dummy) c gs1) tbl names
-  in  [| \ n -> ~(genCode (startFun t [| n |]) (Ctx recs tbl names) gs1) |]
+      recs = recursive (\ c -> analyse (startFun t dummy) c (initGS 1)) tbl names
+  in  [| \ n -> ~(genCode (startFun t [| n |]) Ctx{ ctxRecs = recs, ctxCode = tbl, ctxNames = names } (initGS 1)) |]
 
 -------------------------------------------------------------------------------
 -- Building terms: lam gives its body the variable it binds
@@ -587,58 +666,178 @@ ifz c a b = If0 <$> c <*> a <*> b
 share :: T -> (T -> T) -> T
 share m k = m >>= k . pure
 
-omega :: T
-omega = share (lam "x" $ \ x -> x .@ x) $ \ w -> w .@ w
+-------------------------------------------------------------------------------
+-- A parser for terms, for writing examples
+--
+--   e ::= \ x1 .. xn -> e             a lambda (of n arguments)
+--       | if0 e then e else e         a conditional on zero
+--       | let x = e in e              sharing: the term is built once, and is
+--                                     the same term (with the same ids) where
+--                                     x is used; it is not recursive
+--       | e + e | e - e | e * e       arithmetic (* binds tighter; left associative)
+--       | e e                         an application (binds tightest)
+--       | x | n | ( e )
+--
+-- A definition is x = e.  A defined name is a macro: each use of it builds
+-- the term again, with new ids, like a Haskell definition of type T (let
+-- does not copy).  The parser builds a T (with the builders above) from the
+-- scope: the defined names and the bound variables.
 
-church :: Int -> T
-church n = lam "f" $ \ f -> lam "x" $ \ x -> iterate (f .@) x !! n
+type Scope = [(String, T)]
 
-timesC, toInt :: T
-timesC = lam "m" $ \ m -> lam "n" $ \ n -> lam "f" $ \ f -> m .@ (n .@ f)
-toInt  = lam "c" $ \ c -> c .@ lam "k" (\ k -> k .+ lit 1) .@ lit 0
+-- A parser of a term: the term (in a scope), and the tokens after it
+type Parse = [String] -> (Scope -> T, [String])
 
--- The (lazy) fixed point combinator Y, which loops under call by value
-fixY :: T
-fixY = lam "f" $ \ f -> share (lam "x" $ \ x -> f .@ (x .@ x)) $ \ w -> w .@ w
+tokens :: String -> [String]
+tokens s =
+  case s of
+    [] -> []
+    c : cs
+      | isSpace c -> tokens cs
+      | isAlpha c || c == '_' -> let (w, r) = span (\ d -> isAlphaNum d || d == '_' || d == '\'') s in w : tokens r
+      | isDigit c -> let (w, r) = span isDigit s in w : tokens r
+      | c == '-', '>' : r <- cs -> "->" : tokens r
+      | otherwise -> [c] : tokens cs
 
-factorial, fibonacci, spin :: T
-factorial = fixY .@ lam "fact" (\ fact -> lam "n" $ \ n -> ifz n (lit 1) (n .* (fact .@ (n .- lit 1))))
-fibonacci = fixY .@ lam "fib" (\ fib -> lam "n" $ \ n ->
-              ifz n (lit 0)
-                (ifz (n .- lit 1) (lit 1)
-                  (fib .@ (n .- lit 1) .+ fib .@ (n .- lit 2))))
-spin = fixY .@ lam "f" (\ f -> lam "m" $ \ m -> f .@ m)         -- never returns
+keywords :: [String]
+keywords = ["if0", "then", "else", "let", "in"]
+
+isName :: String -> Bool
+isName t = case t of
+             c : _ -> (isAlpha c || c == '_') && t `notElem` keywords
+             _ -> False
+
+isNumber :: String -> Bool
+isNumber t = not (null t) && all isDigit t
+
+parseError :: String -> [String] -> a
+parseError msg ts = error ("parse error: " ++ msg ++ ", at: " ++ unwords (take 8 ts))
+
+expect :: String -> [String] -> [String]
+expect t ts =
+  case ts of
+    t' : ts' | t' == t -> ts'
+    _ -> parseError ("expected " ++ t) ts
+
+pExpr :: Parse
+pExpr ts =
+  case ts of
+    "\\" : ts1 ->
+      let (xs, ts2) = span isName ts1
+          (b, ts3) = pExpr (expect "->" ts2)
+      in  if null xs then parseError "expected a variable" ts1 else (\ sc -> lams xs b sc, ts3)
+    "if0" : ts1 ->
+      let (c, ts2) = pExpr ts1
+          (a, ts3) = pExpr (expect "then" ts2)
+          (b, ts4) = pExpr (expect "else" ts3)
+      in  (\ sc -> ifz (c sc) (a sc) (b sc), ts4)
+    "let" : x : "=" : ts1 | isName x ->
+      let (e, ts2) = pExpr ts1
+          (b, ts3) = pExpr (expect "in" ts2)
+      in  (\ sc -> share (e sc) (\ v -> b ((x, v) : sc)), ts3)
+    _ -> pLeft ["+", "-"] (pLeft ["*"] pApp) ts
+  where lams xs b sc = case xs of
+                         [] -> b sc
+                         x : xs' -> lam x (\ v -> lams xs' b ((x, v) : sc))
+
+-- Left associative operators over the terms of p
+pLeft :: [String] -> Parse -> Parse
+pLeft ops p ts0 = let (a, ts1) = p ts0 in go a ts1
+  where go a ts = case ts of
+                    o : ts' | o `elem` ops -> let (b, ts'') = p ts' in go (\ sc -> binop o (a sc) (b sc)) ts''
+                    _ -> (a, ts)
+        binop o = case o of { "+" -> (.+); "-" -> (.-); _ -> (.*) }
+
+pApp :: Parse
+pApp ts0 = let (f, ts1) = pAtom ts0 in go f ts1
+  where go f ts = case ts of
+                    t : _ | isName t || isNumber t || t == "(" -> let (a, ts') = pAtom ts in go (\ sc -> f sc .@ a sc) ts'
+                    _ -> (f, ts)
+
+pAtom :: Parse
+pAtom ts =
+  case ts of
+    "(" : ts1 -> let (e, ts2) = pExpr ts1 in (e, expect ")" ts2)
+    t : ts1 | isNumber t -> (\ _ -> lit (read t), ts1)
+            | isName t -> (\ sc -> fromMaybe (error ("unbound variable " ++ t)) (lookup t sc), ts1)
+    _ -> parseError "expected a term" ts
+
+-- A term, with the given definitions in scope
+parseTerm :: Scope -> String -> T
+parseTerm sc s =
+  case pExpr (tokens s) of
+    (e, []) -> e sc
+    (_, ts) -> parseError "unexpected tokens" ts
+
+-- Definitions, each with the ones before it in scope
+defs :: [String] -> Scope
+defs = foldl def []
+  where def sc d = case tokens d of
+                     x : "=" : ts | isName x -> (x, parseTerm sc (unwords ts)) : sc
+                     ts -> parseError "expected a definition x = e" ts
+
+-------------------------------------------------------------------------------
+-- Examples
+
+-- The Church numeral n: \ f x -> f (f (... x))
+church :: Int -> String
+church n = "\\ f x -> " ++ concat (replicate n "f (") ++ "x" ++ replicate n ')'
+
+examples :: Scope
+examples = defs
+  [ -- the (lazy) fixed point combinator Y, which loops under call by value;
+    -- let shares \ x -> f (x x), so both of its copies have the same ids
+    "fix = \\ f -> let w = \\ x -> f (x x) in w w"
+  , "factorial = fix (\\ fact n -> if0 n then 1 else n * fact (n - 1))"
+  , "fibonacci = fix (\\ fib n -> if0 n then 0 else if0 n - 1 then 1 else fib (n - 1) + fib (n - 2))"
+  , "spin = fix (\\ f m -> f m)"                                     -- never returns
+  , "power = fix (\\ power b e -> if0 e then 1 else b * power b (e - 1))"
+  , "omega = let w = \\ x -> x x in w w"
+  , "times = \\ m n f -> m (n f)"                                    -- Church numerals
+  , "toInt = \\ c -> c (\\ k -> k + 1) 0"
+  , "six = " ++ church 6
+  , "seven = " ++ church 7
+  ]
+
+term :: String -> T
+term = parseTerm examples
 
 -- Compiled programs
 pfactorial :: Low (Int -> Int)
-pfactorial = evalFun factorial
+pfactorial = evalFun (term "factorial")
 
 pfibonacci :: Low (Int -> Int)
-pfibonacci = evalFun fibonacci
+pfibonacci = evalFun (term "fibonacci")
 
 -- call by need: x is only needed when the input is not 0, and then only once
 pneed :: Low (Int -> Int)
-pneed = evalFun (lam "input" $ \ input -> lam "x" (\ x -> ifz input (lit 0) (x .+ x)) .@ (spin .@ input))
+pneed = evalFun (term "\\ input -> (\\ x -> if0 input then 0 else x + x) (spin input)")
 
 -- sharing: the argument is evaluated once
 pshare :: Low (Int -> Int)
-pshare = evalFun (lam "input" $ \ input -> lam "x" (\ x -> x .+ x .+ x .+ x) .@ (fibonacci .@ input))
+pshare = evalFun (term "\\ input -> (\\ x -> x + x + x + x) (fibonacci input)")
+
+-- specialisation: power is specialised to the base 2, which is known at
+-- compile time (it is part of the key of the recursive application)
+ppower :: Low (Int -> Int)
+ppower = evalFun (term "\\ n -> power 2 n")
 
 -- Factorial written by hand in low code, for comparison
 handFactorial :: Low (Int -> Int)
 handFactorial = [| \ n -> let go m = if m == 0 then 1 else m * go (m - 1) in go n |]
 
 -- Run time code: the compiled programs are spliced in.
-factorialC, fibonacciC, needC, shareC :: Int -> Int
+factorialC, fibonacciC, needC, shareC, powerC :: Int -> Int
 factorialC = pfactorial
 fibonacciC = pfibonacci
 needC = pneed
 shareC = pshare
+powerC = ppower
 
 factorial10C, churchC, lazyC :: Int
-factorial10C = evalInt (factorial .@ lit 10)
-churchC = evalInt (toInt .@ (timesC .@ church 6 .@ church 7))
-lazyC = evalInt (lam "x" (\ _ -> lit 42) .@ omega)
+factorial10C = evalInt (term "factorial 10")
+churchC = evalInt (term "toInt (times six seven)")
+lazyC = evalInt (term "(\\ x -> 42) omega")
 
 main :: IO ()
 main = do
@@ -654,14 +853,17 @@ main = do
   putStr (lowString (lowPretty (reflect pfibonacci)))
   putStrLn "---- \\ input -> (\\ x -> if0 input then 0 else x + x) (spin input), reflected"
   putStr (lowString (lowPretty (reflect pneed)))
-  putStrLn "---- \\ input -> (\\ x -> x + x + x + x) (fib input), reflected"
+  putStrLn "---- \\ input -> (\\ x -> x + x + x + x) (fibonacci input), reflected"
   putStr (lowString (lowPretty (reflect pshare)))
-  putStrLn "---- factorial 10, 6 * 7 (Church), (\\ x -> 42) omega: computed by the compiler"
-  putStr (lowString (lowPretty (reflect (evalInt (factorial .@ lit 10)))))
-  putStr (lowString (lowPretty (reflect (evalInt (toInt .@ (timesC .@ church 6 .@ church 7))))))
-  putStr (lowString (lowPretty (reflect (evalInt (lam "x" (\ _ -> lit 42) .@ omega)))))
+  putStrLn "---- \\ n -> power 2 n, reflected"
+  putStr (lowString (lowPretty (reflect ppower)))
+  putStrLn "---- factorial 10, toInt (times six seven), (\\ x -> 42) omega: computed by the compiler"
+  putStr (lowString (lowPretty (reflect (evalInt (term "factorial 10")))))
+  putStr (lowString (lowPretty (reflect (evalInt (term "toInt (times six seven)")))))
+  putStr (lowString (lowPretty (reflect (evalInt (term "(\\ x -> 42) omega")))))
   putStrLn "---- run"
   print (map factorialC [0, 1, 5, 10, 12])        -- 12! is the largest that fits a 32 bit Int
   print (map fibonacciC [0, 1, 2, 15])
   print (needC 0, shareC 15)
+  print (map powerC [0, 1, 10, 20])
   print (factorial10C, churchC, lazyC)
