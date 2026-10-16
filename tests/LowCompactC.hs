@@ -1,7 +1,8 @@
 -- A compact C printer for low code (compare the example backend Staged.Low.C):
 --
 --  * a data type is a typedef'd struct, and each constructor a one line
---    helper function;
+--    helper function; the tags of its constructors are named by an enum,
+--    Type_Con (e.g. RV_RCons);
 --  * code in tail position returns its value (no temporary per case), a case
 --    on a type with one constructor reads its fields, a case on Bool is an if,
 --    and a case that covers all constructors has no default;
@@ -131,15 +132,26 @@ cName = concatMap esc . baseName
               | c == '\'' = "_q"
               | otherwise = "_" ++ show (ord c) ++ "_"
 
--- Data types: a typedef, a struct, and a helper per constructor
+-- The name of the tag of a constructor: Type_Con
+tagName :: LowDecl -> String -> String
+tagName d c = cName (declName d) ++ "_" ++ cName c
+
+-- The tag of a constructor of a type, as an enum constant
+conTagName :: LowDecl -> LowCon -> String
+conTagName d c = tagName d (conName c)
+
+-- Data types: an enum for the tags, a typedef, a struct, and a helper per
+-- constructor
 decls :: Bool -> [LowDecl] -> [String]
 decls m ds =
+  [ "enum { " ++ intercalate ", " [ tagName d (conDeclName c) ++ " = " ++ show (conDeclTag c) | c <- declCons d ] ++ " };"
+  | d <- ds, not (m && baseName (declName d) `elem` ["St", "Heap", "Res"]) ] ++
   [ unwords [ "typedef struct " ++ n ++ " " ++ n ++ ";" | d <- ds', let n = cName (declName d) ] | not (null ds') ] ++
   [ "struct " ++ cName (declName d) ++ " { int tag; union { " ++
       concat [ "struct { " ++ concat [ cTy m f ++ " f" ++ show i ++ "; " | (i, f) <- zip [0 :: Int ..] (conDeclFields c) ] ++ "} " ++ cName (conDeclName c) ++ "; "
              | c <- declCons d, not (null (conDeclFields c)) ] ++ "} u; };"
   | d <- ds' ] ++
-  [ "static " ++ n ++ " *C_" ++ k ++ "(" ++ params ++ ") { " ++ n ++ " *p = malloc(sizeof *p); p->tag = " ++ show (conDeclTag c) ++ "; " ++
+  [ "static " ++ n ++ " *C_" ++ k ++ "(" ++ params ++ ") { " ++ n ++ " *p = malloc(sizeof *p); p->tag = " ++ tagName d (conDeclName c) ++ "; " ++
       concat [ "p->u." ++ k ++ ".f" ++ show i ++ " = a" ++ show i ++ "; " | (i, _) <- fs ] ++ "return p; }"
   | d <- ds', c <- declCons d, let n = cName (declName d)
                                    k = cName (conDeclName c)
@@ -182,7 +194,7 @@ expr env@(Env m _ fs hs as0 _) t =
           return v'
       | otherwise ->
           case ty of
-            TData _ _ d | isEnum d -> return (show (conTag c))
+            TData _ _ d | isEnum d -> return (conTagName d c)
             _ -> do { as' <- mapM (expr env) as; return ("C_" ++ cName (conName c) ++ "(" ++ intercalate ", " as' ++ ")") }
     LLet x ty e b -> do { env' <- letBind env x ty e; expr env' b }
     LLetRec bs b -> do { env' <- letRec env bs; expr env' b }
@@ -288,8 +300,8 @@ switchOn env dest decl v _ alts d
       let sorted = sortBy (\ a b -> compare (length (snd a)) (length (snd b))) bodies
           tag = if isEnum decl then v else v ++ "->tag"
       mapM_ (\ (con, ss) -> case ss of
-                              [l] -> emit ("if (" ++ tag ++ " == " ++ show (conTag con) ++ ") " ++ l)
-                              _ -> do { emit ("if (" ++ tag ++ " == " ++ show (conTag con) ++ ") {"); mapM_ (emit . ("  " ++)) ss; emit "}" })
+                              [l] -> emit ("if (" ++ tag ++ " == " ++ conTagName decl con ++ ") " ++ l)
+                              _ -> do { emit ("if (" ++ tag ++ " == " ++ conTagName decl con ++ ") {"); mapM_ (emit . ("  " ++)) ss; emit "}" })
             (init sorted)
       mapM_ emit (snd (last sorted))
   where isFail e = case e of { LFail _ -> True; _ -> False }
@@ -300,8 +312,8 @@ switchOn env@(Env m _ _ _ _ _) dest decl v cons alts d = do
                            tailT (knownTag v (conTag con) env') dest b
                            maybe (return ()) (\ _ -> emit "break;") dest)
            case ss of
-             [l] -> emit ("case " ++ show (conTag con) ++ ": " ++ l)
-             _ -> do { emit ("case " ++ show (conTag con) ++ ": {"); mapM_ (emit . ("  " ++)) ss; emit "}" }) alts
+             [l] -> emit ("case " ++ conTagName decl con ++ ": " ++ l)
+             _ -> do { emit ("case " ++ conTagName decl con ++ ": {"); mapM_ (emit . ("  " ++)) ss; emit "}" }) alts
   case d of
     Just (LFail _) -> emit "default: abort();"
     Just e' | length alts < length cons -> do

@@ -15,23 +15,23 @@
 #include <stdio.h>
 #include <math.h>
 
-/* Data.Bool_Type.Bool: False=0, True=1 */
+enum { Bool_False = 0, Bool_True = 1 };
 
 static int64_t loop(int64_t n, int64_t acc, int64_t s);
 static int64_t loop(int64_t n, int64_t acc, int64_t s) {
   int64_t r_0;
   switch ((s > n)) {
-  case 0: {
+  case Bool_False: {
   int64_t r_1;
   switch (((s % 2) == 0)) {
-  case 0: {
+  case Bool_False: {
   r_1 = loop(n, acc, (s + 1)); break; }
-  case 1: {
+  case Bool_True: {
   r_1 = loop(n, (acc + (s * s)), (s + 1)); break; }
   default: abort();
   }
   r_0 = r_1; break; }
-  case 1: {
+  case Bool_True: {
   r_0 = acc; break; }
   default: abort();
   }

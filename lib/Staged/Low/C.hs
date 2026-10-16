@@ -5,6 +5,7 @@
 --  * a data type whose constructors all have no fields is an int (the tag);
 --  * other data types are structs with a tag and a union of the fields,
 --    allocated with malloc (and never freed: this example has no memory management);
+--  * the tags are named by an enum per data type, Type_Con (e.g. Bool_True);
 --  * local functions (let and letrec bound lambdas) become C functions; the
 --    variables of the enclosing scope they use are passed as extra arguments
 --    (lambda lifting), which is always possible since functions never escape;
@@ -88,19 +89,33 @@ cName = concatMap esc . baseName
 cVar :: String -> String
 cVar = cName
 
--- The declaration of a data type (not for enumerations).
+-- The name of the tag of a constructor: Type_Con
+tagName :: LowDecl -> String -> String
+tagName d c = cName (declName d) ++ "_" ++ cName c
+
+-- The tag of a constructor (of a value of the type), as an enum constant
+conTagName :: LowTy -> LowCon -> String
+conTagName t c =
+  case t of
+    TData _ _ d -> tagName d (conName c)
+    _ -> show (conTag c)
+
+-- The declaration of a data type: an enum that names its tags, and (when it
+-- is not an enumeration) a struct.
 -- Type parameters are instantiated per use, so a type with parameters becomes a
 -- struct per instantiation; for simplicity this example uses void* for parameters.
 cDecl :: LowDecl -> String
 cDecl d
-  | isEnum d = "/* " ++ declName d ++ ": " ++ intercalate ", " [ cName (conDeclName c) ++ "=" ++ show (conDeclTag c) | c <- declCons d ] ++ " */"
+  | isEnum d = tags
   | otherwise =
+      tags ++ "\n" ++
       "struct " ++ cName (declName d) ++ " { int tag; union { " ++
       concat [ "struct { " ++ concat [ cType (param t) ++ " f" ++ show i ++ "; " | (i, t) <- zip [0 :: Int ..] (conDeclFields c) ] ++ "} " ++ cName (conDeclName c) ++ "; "
              | c <- declCons d, not (null (conDeclFields c)) ] ++
       "} u; };"
   where param (TParam _) = TOther "void*"
         param t = t
+        tags = "enum { " ++ intercalate ", " [ tagName d (conDeclName c) ++ " = " ++ show (conDeclTag c) | c <- declCons d ] ++ " };"
 
 -- The environment: the variables in scope with their types, and the lifted
 -- functions with the variables they capture.
@@ -165,7 +180,7 @@ gen env at =
           let tag = if isEnum decl then s' else s' ++ "->tag"
           emit ("switch (" ++ tag ++ ") {")
           mapM_ (\ (c, xs, b) -> do
-                   emit ("case " ++ show (conTag c) ++ ": {")
+                   emit ("case " ++ conTagName st c ++ ": {")
                    mapM_ (\ (i, (x, t)) -> emit (cType t ++ " " ++ cVar x ++ " = " ++ s' ++ "->u." ++ cName (conName c) ++ ".f" ++ show i ++ ";")) (zip [0 :: Int ..] xs)
                    (b', ss) <- block (gen (addVars xs env) b)
                    mapM_ emit ss
@@ -184,13 +199,13 @@ gen env at =
       as' <- mapM (gen env) as
       case t of
         TData n _ decl
-          | isEnum decl -> return (show (conTag c))
+          | isEnum decl -> return (conTagName t c)
           | declNewtype decl -> return (head as')
           | otherwise -> do
               v <- freshC "c"
               let sn = "struct " ++ cName n
               emit (sn ++ "* " ++ v ++ " = malloc(sizeof(" ++ sn ++ "));")
-              emit (v ++ "->tag = " ++ show (conTag c) ++ ";")
+              emit (v ++ "->tag = " ++ conTagName t c ++ ";")
               mapM_ (\ (i, a) -> emit (v ++ "->u." ++ cName (conName c) ++ ".f" ++ show i ++ " = " ++ a ++ ";")) (zip [0 :: Int ..] as')
               return v
         _ -> return "/* bad constructor */0"

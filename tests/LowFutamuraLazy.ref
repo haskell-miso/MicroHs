@@ -144,6 +144,13 @@
 ---- pfibs, compact C
 #include <stdint.h>
 #include <stdlib.h>
+enum { Cell_Thunk = 0, Cell_Done = 1 };
+enum { Ints_INil = 0, Ints_ICons = 1 };
+enum { RV_RInt = 0, RV_RNil = 1, RV_RCons = 2 };
+enum { Heap_Empty = 0, Heap_Node = 1 };
+enum { Bool_False = 0, Bool_True = 1 };
+enum { Res_Res = 0 };
+enum { St_St = 0 };
 typedef struct Cell Cell; typedef struct Ints Ints; typedef struct RV RV; typedef struct Heap Heap; typedef struct Res Res; typedef struct St St;
 struct Cell { int tag; union { struct { int64_t f0; Ints * f1; } Thunk; struct { RV * f0; } Done; } u; };
 struct Ints { int tag; union { struct { int64_t f0; Ints * f1; } ICons; } u; };
@@ -151,17 +158,17 @@ struct RV { int tag; union { struct { int64_t f0; } RInt; struct { int64_t f0; i
 struct Heap { int tag; union { struct { Heap * f0; Cell * f1; Heap * f2; } Node; } u; };
 struct Res { int tag; union { struct { RV * f0; St * f1; } Res; } u; };
 struct St { int tag; union { struct { int64_t f0; Heap * f1; } St; } u; };
-static Cell *C_Thunk(int64_t a0, Ints * a1) { Cell *p = malloc(sizeof *p); p->tag = 0; p->u.Thunk.f0 = a0; p->u.Thunk.f1 = a1; return p; }
-static Cell *C_Done(RV * a0) { Cell *p = malloc(sizeof *p); p->tag = 1; p->u.Done.f0 = a0; return p; }
-static Ints *C_INil(void) { Ints *p = malloc(sizeof *p); p->tag = 0; return p; }
-static Ints *C_ICons(int64_t a0, Ints * a1) { Ints *p = malloc(sizeof *p); p->tag = 1; p->u.ICons.f0 = a0; p->u.ICons.f1 = a1; return p; }
-static RV *C_RInt(int64_t a0) { RV *p = malloc(sizeof *p); p->tag = 0; p->u.RInt.f0 = a0; return p; }
-static RV *C_RNil(void) { RV *p = malloc(sizeof *p); p->tag = 1; return p; }
-static RV *C_RCons(int64_t a0, int64_t a1) { RV *p = malloc(sizeof *p); p->tag = 2; p->u.RCons.f0 = a0; p->u.RCons.f1 = a1; return p; }
-static Heap *C_Empty(void) { Heap *p = malloc(sizeof *p); p->tag = 0; return p; }
-static Heap *C_Node(Heap * a0, Cell * a1, Heap * a2) { Heap *p = malloc(sizeof *p); p->tag = 1; p->u.Node.f0 = a0; p->u.Node.f1 = a1; p->u.Node.f2 = a2; return p; }
-static Res *C_Res(RV * a0, St * a1) { Res *p = malloc(sizeof *p); p->tag = 0; p->u.Res.f0 = a0; p->u.Res.f1 = a1; return p; }
-static St *C_St(int64_t a0, Heap * a1) { St *p = malloc(sizeof *p); p->tag = 0; p->u.St.f0 = a0; p->u.St.f1 = a1; return p; }
+static Cell *C_Thunk(int64_t a0, Ints * a1) { Cell *p = malloc(sizeof *p); p->tag = Cell_Thunk; p->u.Thunk.f0 = a0; p->u.Thunk.f1 = a1; return p; }
+static Cell *C_Done(RV * a0) { Cell *p = malloc(sizeof *p); p->tag = Cell_Done; p->u.Done.f0 = a0; return p; }
+static Ints *C_INil(void) { Ints *p = malloc(sizeof *p); p->tag = Ints_INil; return p; }
+static Ints *C_ICons(int64_t a0, Ints * a1) { Ints *p = malloc(sizeof *p); p->tag = Ints_ICons; p->u.ICons.f0 = a0; p->u.ICons.f1 = a1; return p; }
+static RV *C_RInt(int64_t a0) { RV *p = malloc(sizeof *p); p->tag = RV_RInt; p->u.RInt.f0 = a0; return p; }
+static RV *C_RNil(void) { RV *p = malloc(sizeof *p); p->tag = RV_RNil; return p; }
+static RV *C_RCons(int64_t a0, int64_t a1) { RV *p = malloc(sizeof *p); p->tag = RV_RCons; p->u.RCons.f0 = a0; p->u.RCons.f1 = a1; return p; }
+static Heap *C_Empty(void) { Heap *p = malloc(sizeof *p); p->tag = Heap_Empty; return p; }
+static Heap *C_Node(Heap * a0, Cell * a1, Heap * a2) { Heap *p = malloc(sizeof *p); p->tag = Heap_Node; p->u.Node.f0 = a0; p->u.Node.f1 = a1; p->u.Node.f2 = a2; return p; }
+static Res *C_Res(RV * a0, St * a1) { Res *p = malloc(sizeof *p); p->tag = Res_Res; p->u.Res.f0 = a0; p->u.Res.f1 = a1; return p; }
+static St *C_St(int64_t a0, Heap * a1) { St *p = malloc(sizeof *p); p->tag = St_St; p->u.St.f0 = a0; p->u.St.f1 = a1; return p; }
 static Cell * fetch(Heap * h, int64_t a);
 static Cell * fetch(Heap * h, int64_t a) {
   if ((a == 1)) {
@@ -174,7 +181,7 @@ static Cell * fetch(Heap * h, int64_t a) {
 }
 static Heap * store(Heap * h_1, int64_t a_1, Cell * c_1);
 static Heap * store(Heap * h_1, int64_t a_1, Cell * c_1) {
-  if (h_1->tag == 0) return C_Node(C_Empty(), c_1, C_Empty());
+  if (h_1->tag == Heap_Empty) return C_Node(C_Empty(), c_1, C_Empty());
   Heap * l_1 = h_1->u.Node.f0;
   Cell * c0 = h_1->u.Node.f1;
   Heap * r_1 = h_1->u.Node.f2;
@@ -188,7 +195,7 @@ static Heap * store(Heap * h_1, int64_t a_1, Cell * c_1) {
 }
 static Res * rt(int64_t c_2, int64_t a_2, Ints * xs, St * st);
 static Res * j(int64_t h_6, int64_t t_2, RV * v_5, St * s_5) {
-  if (v_5->tag == 1) return C_Res(C_RNil(), s_5);
+  if (v_5->tag == RV_RNil) return C_Res(C_RNil(), s_5);
   int64_t next_2 = s_5->u.St.f0;
   St * s1_2 = C_St((next_2 + 1), store(s_5->u.St.f1, next_2, C_Thunk(3, C_ICons(v_5->u.RCons.f0, C_ICons(h_6, C_INil())))));
   int64_t next_3 = s1_2->u.St.f0;
@@ -198,7 +205,7 @@ static Res * j(int64_t h_6, int64_t t_2, RV * v_5, St * s_5) {
 static Res * rt(int64_t c_2, int64_t a_2, Ints * xs, St * st) {
   if ((c_2 == 0)) {
     Cell * x1_31 = fetch(st->u.St.f1, a_2);
-    if (x1_31->tag == 1) return C_Res(x1_31->u.Done.f0, st);
+    if (x1_31->tag == Cell_Done) return C_Res(x1_31->u.Done.f0, st);
     Res * x1_32 = rt((x1_31->u.Thunk.f0 + 1), 0, x1_31->u.Thunk.f1, st);
     RV * v_8 = x1_32->u.Res.f0;
     St * s0 = x1_32->u.Res.f1;
@@ -221,7 +228,7 @@ static Res * rt(int64_t c_2, int64_t a_2, Ints * xs, St * st) {
       Res * x1_17 = rt(0, xs->u.ICons.f0, C_INil(), st);
       RV * v_4 = x1_17->u.Res.f0;
       St * s_4 = x1_17->u.Res.f1;
-      if (v_4->tag == 1) return C_Res(C_RNil(), s_4);
+      if (v_4->tag == RV_RNil) return C_Res(C_RNil(), s_4);
       Res * x1_23 = rt(0, v_4->u.RCons.f1, C_INil(), s_4);
       return j(v_4->u.RCons.f0, v_4->u.RCons.f1, x1_23->u.Res.f0, x1_23->u.Res.f1);
     } else if ((d == 3)) {
@@ -236,11 +243,11 @@ static Res * rt(int64_t c_2, int64_t a_2, Ints * xs, St * st) {
       Res * x1_4 = rt(0, s4->u.ICons.f0, C_INil(), st);
       St * s = x1_4->u.Res.f1;
       RV * s5 = x1_4->u.Res.f0;
-      if (s5->tag == 1) return C_Res(C_RNil(), s);
+      if (s5->tag == RV_RNil) return C_Res(C_RNil(), s);
       Res * x1_6 = rt(0, xs->u.ICons.f0, C_INil(), s);
       St * s_1 = x1_6->u.Res.f1;
       RV * s6 = x1_6->u.Res.f0;
-      if (s6->tag == 1) return C_Res(C_RNil(), s_1);
+      if (s6->tag == RV_RNil) return C_Res(C_RNil(), s_1);
       int64_t next = s_1->u.St.f0;
       St * s1 = C_St((next + 1), store(s_1->u.St.f1, next, C_Thunk(3, C_ICons(s6->u.RCons.f0, C_ICons(s5->u.RCons.f0, C_INil())))));
       int64_t next_1 = s1->u.St.f0;
@@ -255,13 +262,13 @@ static Res * nth(int64_t xs_1, int64_t n_1, St * st_1) {
     Res * x1_38 = rt(0, xs_1, C_INil(), st_1);
     St * s_8 = x1_38->u.Res.f1;
     RV * s7 = x1_38->u.Res.f0;
-    if (s7->tag == 1) return C_Res(C_RInt(0), s_8);
+    if (s7->tag == RV_RNil) return C_Res(C_RInt(0), s_8);
     return rt(0, s7->u.RCons.f0, C_INil(), s_8);
   } else {
     Res * x1_36 = rt(0, xs_1, C_INil(), st_1);
     St * s_7 = x1_36->u.Res.f1;
     RV * s8 = x1_36->u.Res.f0;
-    if (s8->tag == 1) return C_Res(C_RInt(0), s_7);
+    if (s8->tag == RV_RNil) return C_Res(C_RInt(0), s_7);
     return nth(s8->u.RCons.f1, (n_1 - 1), s_7);
   }
 }
@@ -278,22 +285,26 @@ int64_t pfibs(int64_t n) {
 ---- pfibs, compact C with a mutable heap
 #include <stdint.h>
 #include <stdlib.h>
+enum { Cell_Thunk = 0, Cell_Done = 1 };
+enum { Ints_INil = 0, Ints_ICons = 1 };
+enum { RV_RInt = 0, RV_RNil = 1, RV_RCons = 2 };
+enum { Bool_False = 0, Bool_True = 1 };
 typedef struct Cell Cell; typedef struct Ints Ints; typedef struct RV RV;
 struct Cell { int tag; union { struct { int64_t f0; Ints * f1; } Thunk; struct { RV * f0; } Done; } u; };
 struct Ints { int tag; union { struct { int64_t f0; Ints * f1; } ICons; } u; };
 struct RV { int tag; union { struct { int64_t f0; } RInt; struct { int64_t f0; int64_t f1; } RCons; } u; };
-static Cell *C_Thunk(int64_t a0, Ints * a1) { Cell *p = malloc(sizeof *p); p->tag = 0; p->u.Thunk.f0 = a0; p->u.Thunk.f1 = a1; return p; }
-static Cell *C_Done(RV * a0) { Cell *p = malloc(sizeof *p); p->tag = 1; p->u.Done.f0 = a0; return p; }
-static Ints *C_INil(void) { Ints *p = malloc(sizeof *p); p->tag = 0; return p; }
-static Ints *C_ICons(int64_t a0, Ints * a1) { Ints *p = malloc(sizeof *p); p->tag = 1; p->u.ICons.f0 = a0; p->u.ICons.f1 = a1; return p; }
-static RV *C_RInt(int64_t a0) { RV *p = malloc(sizeof *p); p->tag = 0; p->u.RInt.f0 = a0; return p; }
-static RV *C_RNil(void) { RV *p = malloc(sizeof *p); p->tag = 1; return p; }
-static RV *C_RCons(int64_t a0, int64_t a1) { RV *p = malloc(sizeof *p); p->tag = 2; p->u.RCons.f0 = a0; p->u.RCons.f1 = a1; return p; }
+static Cell *C_Thunk(int64_t a0, Ints * a1) { Cell *p = malloc(sizeof *p); p->tag = Cell_Thunk; p->u.Thunk.f0 = a0; p->u.Thunk.f1 = a1; return p; }
+static Cell *C_Done(RV * a0) { Cell *p = malloc(sizeof *p); p->tag = Cell_Done; p->u.Done.f0 = a0; return p; }
+static Ints *C_INil(void) { Ints *p = malloc(sizeof *p); p->tag = Ints_INil; return p; }
+static Ints *C_ICons(int64_t a0, Ints * a1) { Ints *p = malloc(sizeof *p); p->tag = Ints_ICons; p->u.ICons.f0 = a0; p->u.ICons.f1 = a1; return p; }
+static RV *C_RInt(int64_t a0) { RV *p = malloc(sizeof *p); p->tag = RV_RInt; p->u.RInt.f0 = a0; return p; }
+static RV *C_RNil(void) { RV *p = malloc(sizeof *p); p->tag = RV_RNil; return p; }
+static RV *C_RCons(int64_t a0, int64_t a1) { RV *p = malloc(sizeof *p); p->tag = RV_RCons; p->u.RCons.f0 = a0; p->u.RCons.f1 = a1; return p; }
 static Cell *heap[1 << 20]; static int64_t hp;
 static int64_t alloc(Cell *c) { heap[hp] = c; return hp++; }
 static RV * rt(int64_t c_2, int64_t a_2, Ints * xs);
 static RV * j(int64_t h_6, int64_t t_2, RV * v_5) {
-  if (v_5->tag == 1) return C_RNil();
+  if (v_5->tag == RV_RNil) return C_RNil();
   int64_t next_2 = alloc(C_Thunk(3, C_ICons(v_5->u.RCons.f0, C_ICons(h_6, C_INil()))));
   int64_t next_3 = alloc(C_Thunk(4, C_ICons(v_5->u.RCons.f1, C_ICons(t_2, C_INil()))));
   return C_RCons(next_2, next_3);
@@ -301,7 +312,7 @@ static RV * j(int64_t h_6, int64_t t_2, RV * v_5) {
 static RV * rt(int64_t c_2, int64_t a_2, Ints * xs) {
   if ((c_2 == 0)) {
     Cell * x1_31 = heap[a_2];
-    if (x1_31->tag == 1) return x1_31->u.Done.f0;
+    if (x1_31->tag == Cell_Done) return x1_31->u.Done.f0;
     RV * x1_32 = rt((x1_31->u.Thunk.f0 + 1), 0, x1_31->u.Thunk.f1);
     heap[a_2] = C_Done(x1_32);
     return x1_32;
@@ -317,7 +328,7 @@ static RV * rt(int64_t c_2, int64_t a_2, Ints * xs) {
       return C_RCons(next_4, next_5);
     } else if ((d == 2)) {
       RV * x1_17 = rt(0, xs->u.ICons.f0, C_INil());
-      if (x1_17->tag == 1) return C_RNil();
+      if (x1_17->tag == RV_RNil) return C_RNil();
       RV * x1_23 = rt(0, x1_17->u.RCons.f1, C_INil());
       return j(x1_17->u.RCons.f0, x1_17->u.RCons.f1, x1_23);
     } else if ((d == 3)) {
@@ -328,9 +339,9 @@ static RV * rt(int64_t c_2, int64_t a_2, Ints * xs) {
     } else {
       Ints * s1 = xs->u.ICons.f1;
       RV * x1_4 = rt(0, s1->u.ICons.f0, C_INil());
-      if (x1_4->tag == 1) return C_RNil();
+      if (x1_4->tag == RV_RNil) return C_RNil();
       RV * x1_6 = rt(0, xs->u.ICons.f0, C_INil());
-      if (x1_6->tag == 1) return C_RNil();
+      if (x1_6->tag == RV_RNil) return C_RNil();
       int64_t next = alloc(C_Thunk(3, C_ICons(x1_6->u.RCons.f0, C_ICons(x1_4->u.RCons.f0, C_INil()))));
       int64_t next_1 = alloc(C_Thunk(4, C_ICons(x1_6->u.RCons.f1, C_ICons(x1_4->u.RCons.f1, C_INil()))));
       return C_RCons(next, next_1);
@@ -341,11 +352,11 @@ static RV * nth(int64_t xs_1, int64_t n_1);
 static RV * nth(int64_t xs_1, int64_t n_1) {
   if ((n_1 == 0)) {
     RV * x1_38 = rt(0, xs_1, C_INil());
-    if (x1_38->tag == 1) return C_RInt(0);
+    if (x1_38->tag == RV_RNil) return C_RInt(0);
     return rt(0, x1_38->u.RCons.f0, C_INil());
   } else {
     RV * x1_36 = rt(0, xs_1, C_INil());
-    if (x1_36->tag == 1) return C_RInt(0);
+    if (x1_36->tag == RV_RNil) return C_RInt(0);
     return nth(x1_36->u.RCons.f1, (n_1 - 1));
   }
 }

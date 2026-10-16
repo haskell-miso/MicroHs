@@ -17,18 +17,18 @@
 #include <stdio.h>
 #include <math.h>
 
-/* Data.Bool_Type.Bool: False=0, True=1 */
+enum { Bool_False = 0, Bool_True = 1 };
 
 static int64_t fact(int64_t n_1);
 static int64_t fact(int64_t n_1) {
   int64_t r_0;
   switch ((n_1 == 0)) {
-  case 0: {
+  case Bool_False: {
   int64_t x = (n_1 - 1);
   int64_t x_1 = fact(x);
   int64_t x_2 = (n_1 * x_1);
   r_0 = x_2; break; }
-  case 1: {
+  case Bool_True: {
   r_0 = 1; break; }
   default: abort();
   }
@@ -54,15 +54,15 @@ int64_t pfactorial(int64_t n) {
 #include <stdio.h>
 #include <math.h>
 
-/* Data.Bool_Type.Bool: False=0, True=1 */
+enum { Bool_False = 0, Bool_True = 1 };
 
 static int64_t go(int64_t m);
 static int64_t go(int64_t m) {
   int64_t r_0;
   switch ((m == 0)) {
-  case 0: {
+  case Bool_False: {
   r_0 = (m * go((m - 1))); break; }
-  case 1: {
+  case Bool_True: {
   r_0 = 1; break; }
   default: abort();
   }
