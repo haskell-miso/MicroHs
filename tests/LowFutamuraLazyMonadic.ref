@@ -16,7 +16,7 @@
                   False -> fetch r (a `quot` 2)
                   True -> fetch l (a `quot` 2)
               True -> c
-          _ -> fail "\"./LowFutamuraLazyMonadic.hs\",1006:27"
+          _ -> fail "\"./LowFutamuraLazyMonadic.hs\",1052:27"
   in letrec
        store :: Heap -> Int -> Cell -> Heap = \ (h_1 :: Heap) (a_1 :: Int) (c_1 :: Cell) ->
            case h_1 of
@@ -50,10 +50,10 @@
                                                                             St next_1 h_5 -> let s1_1 :: St = St (next_1 + 1) (store h_5 next_1 (Thunk 4 (ICons t (ICons t_1 INil))))
                                                                               in let x :: RV = RCons next next_1
                                                                                  in Res x s1_1
-                                                                 _ -> fail "\"./LowFutamuraLazyMonadic.hs\",521:41"
-                                                      _ -> fail "\"./LowFutamuraLazyMonadic.hs\",521:41"
-                                           _ -> fail "\"./LowFutamuraLazyMonadic.hs\",552:39"
-                                       _ -> fail "\"./LowFutamuraLazyMonadic.hs\",552:39"
+                                                                 _ -> fail "\"./LowFutamuraLazyMonadic.hs\",524:41"
+                                                      _ -> fail "\"./LowFutamuraLazyMonadic.hs\",524:41"
+                                           _ -> fail "\"./LowFutamuraLazyMonadic.hs\",555:39"
+                                       _ -> fail "\"./LowFutamuraLazyMonadic.hs\",555:39"
                                    True -> case xs of
                                        ICons y_2 ys_2 -> case ys_2 of
                                            ICons y_3 ys_3 -> let x1_12 :: Res = rt 0 y_2 INil st
@@ -64,10 +64,10 @@
                                                              RInt i -> case v_3 of
                                                                  RInt i_1 -> let x_1 :: Int = i + i_1
                                                                    in Res (RInt x_1) st_4
-                                                                 _ -> fail "\"./LowFutamuraLazyMonadic.hs\",522:37"
-                                                             _ -> fail "\"./LowFutamuraLazyMonadic.hs\",522:37"
-                                           _ -> fail "\"./LowFutamuraLazyMonadic.hs\",552:39"
-                                       _ -> fail "\"./LowFutamuraLazyMonadic.hs\",552:39"
+                                                                 _ -> fail "\"./LowFutamuraLazyMonadic.hs\",525:37"
+                                                             _ -> fail "\"./LowFutamuraLazyMonadic.hs\",525:37"
+                                           _ -> fail "\"./LowFutamuraLazyMonadic.hs\",555:39"
+                                       _ -> fail "\"./LowFutamuraLazyMonadic.hs\",555:39"
                                True -> case xs of
                                    ICons y_4 ys_4 -> let x1_17 :: Res = rt 0 y_4 INil st
                                      in case x1_17 of
@@ -82,15 +82,15 @@
                                                                    St next_3 h_9 -> let s1_3 :: St = St (next_3 + 1) (store h_9 next_3 (Thunk 4 (ICons t_2 (ICons t_3 INil))))
                                                                      in let x_2 :: RV = RCons next_2 next_3
                                                                         in Res x_2 s1_3
-                                                        _ -> fail "\"./LowFutamuraLazyMonadic.hs\",521:41"
+                                                        _ -> fail "\"./LowFutamuraLazyMonadic.hs\",524:41"
                                                 in case v_4 of
                                                      RNil -> j RNil st_5
                                                      RCons h_10 t_4 -> let x1_23 :: Res = rt 0 t_4 INil st_5
                                                        in case x1_23 of
                                                             Res v_6 st_7 -> j v_6 st_7
-                                                     _ -> fail "\"./LowFutamuraLazyMonadic.hs\",521:41"
-                                              _ -> fail "\"./LowFutamuraLazyMonadic.hs\",521:41"
-                                   _ -> fail "\"./LowFutamuraLazyMonadic.hs\",552:39"
+                                                     _ -> fail "\"./LowFutamuraLazyMonadic.hs\",524:41"
+                                              _ -> fail "\"./LowFutamuraLazyMonadic.hs\",524:41"
+                                   _ -> fail "\"./LowFutamuraLazyMonadic.hs\",555:39"
                            True -> case xs of
                                ICons y_5 ys_5 -> case st of
                                    St next_4 h_11 -> let s1_4 :: St = St (next_4 + 1) (store h_11 next_4 (Done (RInt 1)))
@@ -98,7 +98,7 @@
                                           St next_5 h_12 -> let s1_5 :: St = St (next_5 + 1) (store h_12 next_5 (Thunk 2 (ICons y_5 INil)))
                                             in let x_3 :: RV = RCons next_4 next_5
                                                in Res x_3 s1_5
-                               _ -> fail "\"./LowFutamuraLazyMonadic.hs\",552:39"
+                               _ -> fail "\"./LowFutamuraLazyMonadic.hs\",555:39"
                        True -> case xs of
                            ICons y_6 ys_6 -> case st of
                                St next_6 h_13 -> let s1_6 :: St = St (next_6 + 1) (store h_13 next_6 (Done (RInt 0)))
@@ -106,7 +106,7 @@
                                       St next_7 h_14 -> let s1_7 :: St = St (next_7 + 1) (store h_14 next_7 (Thunk 1 (ICons y_6 INil)))
                                         in let x_4 :: RV = RCons next_6 next_7
                                            in Res x_4 s1_7
-                           _ -> fail "\"./LowFutamuraLazyMonadic.hs\",552:39"
+                           _ -> fail "\"./LowFutamuraLazyMonadic.hs\",555:39"
                 True -> case st of
                     St x3 h_15 -> let x1_31 :: Cell = fetch h_15 a_2
                       in case x1_31 of
@@ -129,18 +129,18 @@
                                                    RNil -> Res (RInt 0) st_9
                                                    RCons h_18 t_5 -> let x_5 :: Int = n_1 - 1
                                                      in nth x_5 t_5 st_9
-                                                   _ -> fail "\"./LowFutamuraLazyMonadic.hs\",521:41"
+                                                   _ -> fail "\"./LowFutamuraLazyMonadic.hs\",524:41"
                                         True -> let x1_38 :: Res = rt 0 xs_1 INil st_8
                                           in case x1_38 of
                                                Res v_10 st_10 -> case v_10 of
                                                    RNil -> Res (RInt 0) st_10
                                                    RCons h_19 t_6 -> rt 0 h_19 INil st_10
-                                                   _ -> fail "\"./LowFutamuraLazyMonadic.hs\",521:41"
+                                                   _ -> fail "\"./LowFutamuraLazyMonadic.hs\",524:41"
                                 in nth n next_8 s1_9
            in case x1_40 of
                 Res v_11 x4 -> case v_11 of
                     RInt i_2 -> i_2
-                    _ -> fail "\"./LowFutamuraLazyMonadic.hs\",1027:39"
+                    _ -> fail "\"./LowFutamuraLazyMonadic.hs\",1073:39"
 ---- pfibs, compact C
 #include <stdint.h>
 #include <stdlib.h>
@@ -386,7 +386,7 @@ int64_t pfibs(int64_t n) {
                   False -> fetch r (a `quot` 2)
                   True -> fetch l (a `quot` 2)
               True -> c
-          _ -> fail "\"./LowFutamuraLazyMonadic.hs\",1006:27"
+          _ -> fail "\"./LowFutamuraLazyMonadic.hs\",1052:27"
   in letrec
        store :: Heap -> Int -> Cell -> Heap = \ (h_1 :: Heap) (a_1 :: Int) (c_1 :: Cell) ->
            case h_1 of
@@ -416,16 +416,16 @@ int64_t pfibs(int64_t n) {
                                                                  St next_1 h_4 -> let s1_1 :: St = St (next_1 + 1) (store h_4 next_1 (Thunk 5 (ICons t INil)))
                                                                    in let x :: RV = RCons next next_1
                                                                       in Res x s1_1
-                                                      _ -> fail "\"./LowFutamuraLazyMonadic.hs\",521:41"
-                                           _ -> fail "\"./LowFutamuraLazyMonadic.hs\",552:39"
+                                                      _ -> fail "\"./LowFutamuraLazyMonadic.hs\",524:41"
+                                           _ -> fail "\"./LowFutamuraLazyMonadic.hs\",555:39"
                                        True -> case xs of
                                            ICons y_1 ys_1 -> let x1_8 :: Res = rt 0 y_1 INil st
                                              in case x1_8 of
                                                   Res v_1 st_2 -> case v_1 of
                                                       RInt i -> let x_1 :: Int = i + 1
                                                         in Res (RInt x_1) st_2
-                                                      _ -> fail "\"./LowFutamuraLazyMonadic.hs\",522:37"
-                                           _ -> fail "\"./LowFutamuraLazyMonadic.hs\",552:39"
+                                                      _ -> fail "\"./LowFutamuraLazyMonadic.hs\",525:37"
+                                           _ -> fail "\"./LowFutamuraLazyMonadic.hs\",555:39"
                                    True -> case xs of
                                        ICons y_2 ys_2 -> let x1_11 :: Res = rt 0 y_2 INil st
                                          in case x1_11 of
@@ -437,8 +437,8 @@ int64_t pfibs(int64_t n) {
                                                              St next_3 h_7 -> let s1_3 :: St = St (next_3 + 1) (store h_7 next_3 (Thunk 5 (ICons t_1 INil)))
                                                                in let x_2 :: RV = RCons next_2 next_3
                                                                   in Res x_2 s1_3
-                                                  _ -> fail "\"./LowFutamuraLazyMonadic.hs\",521:41"
-                                       _ -> fail "\"./LowFutamuraLazyMonadic.hs\",552:39"
+                                                  _ -> fail "\"./LowFutamuraLazyMonadic.hs\",524:41"
+                                       _ -> fail "\"./LowFutamuraLazyMonadic.hs\",555:39"
                                True -> case xs of
                                    ICons y_3 ys_3 -> let x1_16 :: Res = rt 0 y_3 INil st
                                      in case x1_16 of
@@ -450,8 +450,8 @@ int64_t pfibs(int64_t n) {
                                                          St next_5 h_10 -> let s1_5 :: St = St (next_5 + 1) (store h_10 next_5 (Thunk 2 (ICons t_2 INil)))
                                                            in let x_3 :: RV = RCons next_4 next_5
                                                               in Res x_3 s1_5
-                                              _ -> fail "\"./LowFutamuraLazyMonadic.hs\",521:41"
-                                   _ -> fail "\"./LowFutamuraLazyMonadic.hs\",552:39"
+                                              _ -> fail "\"./LowFutamuraLazyMonadic.hs\",524:41"
+                                   _ -> fail "\"./LowFutamuraLazyMonadic.hs\",555:39"
                            True -> case xs of
                                ICons y_4 ys_4 -> let x1_21 :: Res = rt 0 y_4 INil st
                                  in case x1_21 of
@@ -459,9 +459,9 @@ int64_t pfibs(int64_t n) {
                                           RInt i_1 -> case v_4 of
                                               RInt i_2 -> let x_4 :: Int = i_1 * i_2
                                                 in Res (RInt x_4) st_5
-                                              _ -> fail "\"./LowFutamuraLazyMonadic.hs\",522:37"
-                                          _ -> fail "\"./LowFutamuraLazyMonadic.hs\",522:37"
-                               _ -> fail "\"./LowFutamuraLazyMonadic.hs\",552:39"
+                                              _ -> fail "\"./LowFutamuraLazyMonadic.hs\",525:37"
+                                          _ -> fail "\"./LowFutamuraLazyMonadic.hs\",525:37"
+                               _ -> fail "\"./LowFutamuraLazyMonadic.hs\",555:39"
                        True -> case xs of
                            ICons y_5 ys_5 -> case st of
                                St next_6 h_11 -> let s1_6 :: St = St (next_6 + 1) (store h_11 next_6 (Done (RInt 0)))
@@ -469,7 +469,7 @@ int64_t pfibs(int64_t n) {
                                       St next_7 h_12 -> let s1_7 :: St = St (next_7 + 1) (store h_12 next_7 (Thunk 3 (ICons y_5 INil)))
                                         in let x_5 :: RV = RCons next_6 next_7
                                            in Res x_5 s1_7
-                           _ -> fail "\"./LowFutamuraLazyMonadic.hs\",552:39"
+                           _ -> fail "\"./LowFutamuraLazyMonadic.hs\",555:39"
                 True -> case st of
                     St x3 h_13 -> let x1_28 :: Cell = fetch h_13 a_2
                       in case x1_28 of
@@ -497,13 +497,13 @@ int64_t pfibs(int64_t n) {
                                                                        RNil -> Res (RInt 0) st_9
                                                                        RCons h_17 t_3 -> let x_6 :: Int = n_1 - 1
                                                                          in f x_6 t_3 st_9
-                                                                       _ -> fail "\"./LowFutamuraLazyMonadic.hs\",521:41"
+                                                                       _ -> fail "\"./LowFutamuraLazyMonadic.hs\",524:41"
                                                             True -> let x1_37 :: Res = rt 0 xs_1 INil st_8
                                                               in case x1_37 of
                                                                    Res v_10 st_10 -> case v_10 of
                                                                        RNil -> Res (RInt 0) st_10
                                                                        RCons h_18 t_4 -> rt 0 h_18 INil st_10
-                                                                       _ -> fail "\"./LowFutamuraLazyMonadic.hs\",521:41"
+                                                                       _ -> fail "\"./LowFutamuraLazyMonadic.hs\",524:41"
                                                     in f n next_10 s1_10
                                        in case v_7 of
                                             RNil -> j RNil st_6
@@ -513,12 +513,152 @@ int64_t pfibs(int64_t n) {
                                                        St next_12 h_21 -> let s1_12 :: St = St (next_12 + 1) (store h_21 next_12 (Thunk 2 (ICons t_5 INil)))
                                                          in let x_7 :: RV = RCons next_11 next_12
                                                             in j x_7 s1_12
-                                            _ -> fail "\"./LowFutamuraLazyMonadic.hs\",521:41"
+                                            _ -> fail "\"./LowFutamuraLazyMonadic.hs\",524:41"
            in case x1_42 of
                 Res v_11 x4 -> case v_11 of
                     RInt i_3 -> i_3
-                    _ -> fail "\"./LowFutamuraLazyMonadic.hs\",1027:39"
+                    _ -> fail "\"./LowFutamuraLazyMonadic.hs\",1073:39"
+---- pfrom = compileFun (\ input -> nth input (map (\ x -> x * x) (from 0))), reflected
+-- type: Int -> Int
+-- data Cell = Thunk Int Ints | Done RV
+-- data Ints = INil | ICons Int Ints
+-- data RV = RInt Int | RNil | RCons Int Int
+-- data Heap = Empty | Node Heap Cell Heap
+-- data Bool = False | True
+-- data Res = Res RV St
+-- data St = St Int Heap
+\ (n :: Int) ->
+  letrec
+    fetch :: Heap -> Int -> Cell = \ (h :: Heap) (a :: Int) ->
+        case h of
+          Node l c r -> case a == 1 of
+              False -> case (a - (2 * (a `quot` 2))) == 0 of
+                  False -> fetch r (a `quot` 2)
+                  True -> fetch l (a `quot` 2)
+              True -> c
+          _ -> fail "\"./LowFutamuraLazyMonadic.hs\",1052:27"
+  in letrec
+       store :: Heap -> Int -> Cell -> Heap = \ (h_1 :: Heap) (a_1 :: Int) (c_1 :: Cell) ->
+           case h_1 of
+             Empty -> Node Empty c_1 Empty
+             Node l_1 c0 r_1 -> case a_1 == 1 of
+                 False -> case (a_1 - (2 * (a_1 `quot` 2))) == 0 of
+                     False -> Node l_1 c0 (store r_1 (a_1 `quot` 2) c_1)
+                     True -> Node (store l_1 (a_1 `quot` 2) c_1) c0 r_1
+                 True -> Node l_1 c_1 r_1
+     in letrec
+          rt :: Int -> Int -> Ints -> St -> Res = \ (c_2 :: Int) (a_2 :: Int) (xs :: Ints) (st :: St) ->
+              case c_2 == 0 of
+                False -> let d :: Int = c_2 - 1
+                  in case d == 0 of
+                       False -> case d == 1 of
+                           False -> case d == 2 of
+                               False -> case d == 3 of
+                                   False -> case d == 4 of
+                                       False -> case xs of
+                                           ICons y ys -> let x1_3 :: Res = rt 0 y INil st
+                                             in case x1_3 of
+                                                  Res v st_1 -> case v of
+                                                      RInt i -> let x :: Int = i + 1
+                                                        in Res (RInt x) st_1
+                                                      _ -> fail "\"./LowFutamuraLazyMonadic.hs\",525:37"
+                                           _ -> fail "\"./LowFutamuraLazyMonadic.hs\",555:39"
+                                       True -> case xs of
+                                           ICons y_1 ys_1 -> case st of
+                                               St next h_2 -> let s1 :: St = St (next + 1) (store h_2 next (Thunk 5 (ICons y_1 INil)))
+                                                 in case s1 of
+                                                      St next_1 h_3 -> let s1_1 :: St = St (next_1 + 1) (store h_3 next_1 (Thunk 4 (ICons next INil)))
+                                                        in let x_1 :: RV = RCons next next_1
+                                                           in Res x_1 s1_1
+                                           _ -> fail "\"./LowFutamuraLazyMonadic.hs\",555:39"
+                                   True -> case xs of
+                                       ICons y_2 ys_2 -> let x_2 :: Int = y_2 + 1
+                                         in Res (RInt x_2) st
+                                       _ -> fail "\"./LowFutamuraLazyMonadic.hs\",555:39"
+                               True -> case xs of
+                                   ICons y_3 ys_3 -> let x1_10 :: Res = rt 0 y_3 INil st
+                                     in case x1_10 of
+                                          Res v_1 st_2 -> case v_1 of
+                                              RNil -> Res RNil st_2
+                                              RCons h_4 t -> case st_2 of
+                                                  St next_2 h_5 -> let s1_2 :: St = St (next_2 + 1) (store h_5 next_2 (Thunk 1 (ICons h_4 INil)))
+                                                    in case s1_2 of
+                                                         St next_3 h_6 -> let s1_3 :: St = St (next_3 + 1) (store h_6 next_3 (Thunk 2 (ICons t INil)))
+                                                           in let x_3 :: RV = RCons next_2 next_3
+                                                              in Res x_3 s1_3
+                                              _ -> fail "\"./LowFutamuraLazyMonadic.hs\",524:41"
+                                   _ -> fail "\"./LowFutamuraLazyMonadic.hs\",555:39"
+                           True -> case xs of
+                               ICons y_4 ys_4 -> let x1_15 :: Res = rt 0 y_4 INil st
+                                 in case x1_15 of
+                                      Res v_2 st_3 -> case v_2 of
+                                          RInt i_1 -> case v_2 of
+                                              RInt i_2 -> let x_4 :: Int = i_1 * i_2
+                                                in Res (RInt x_4) st_3
+                                              _ -> fail "\"./LowFutamuraLazyMonadic.hs\",525:37"
+                                          _ -> fail "\"./LowFutamuraLazyMonadic.hs\",525:37"
+                               _ -> fail "\"./LowFutamuraLazyMonadic.hs\",555:39"
+                       True -> case xs of
+                           ICons y_5 ys_5 -> case st of
+                               St next_4 h_7 -> let s1_4 :: St = St (next_4 + 1) (store h_7 next_4 (Thunk 3 (ICons y_5 INil)))
+                                 in case s1_4 of
+                                      St next_5 h_8 -> let s1_5 :: St = St (next_5 + 1) (store h_8 next_5 (Thunk 4 (ICons next_4 INil)))
+                                        in let x_5 :: RV = RCons next_4 next_5
+                                           in Res x_5 s1_5
+                           _ -> fail "\"./LowFutamuraLazyMonadic.hs\",555:39"
+                True -> case st of
+                    St x3 h_9 -> let x1_22 :: Cell = fetch h_9 a_2
+                      in case x1_22 of
+                           Done v_3 -> Res v_3 st
+                           Thunk d_1 cs -> let x1_23 :: Res = rt (d_1 + 1) 0 cs st
+                             in case x1_23 of
+                                  Res v_4 st1 -> case st1 of
+                                      St n1 h1 -> Res v_4 (St n1 (store h1 a_2 (Done v_4)))
+        in let x1_37 :: Res = let x1_25 :: St = St 1 Empty
+               in case x1_25 of
+                    St next_6 h_10 -> let s1_6 :: St = St (next_6 + 1) (store h_10 next_6 (Done (RInt 0)))
+                      in case s1_6 of
+                           St next_7 h_11 -> let s1_7 :: St = St (next_7 + 1) (store h_11 next_7 (Thunk 0 (ICons 0 INil)))
+                             in let x_6 :: RV = RCons next_6 next_7
+                                in case s1_7 of
+                                     St next_8 h_12 -> let s1_8 :: St = St (next_8 + 1) (store h_12 next_8 (Done x_6))
+                                       in let x1_28 :: Res = rt 0 next_8 INil s1_8
+                                          in case x1_28 of
+                                               Res v_5 st_4 -> let j :: RV -> St -> Res = \ (v_6 :: RV) (st_5 :: St) ->
+                                                       case st_5 of
+                                                         St next_9 h_13 -> let s1_9 :: St = St (next_9 + 1) (store h_13 next_9 (Done v_6))
+                                                           in letrec
+                                                                f :: Int -> Int -> St -> Res = \ (n_1 :: Int) (xs_1 :: Int) (st_6 :: St) ->
+                                                                    case n_1 == 0 of
+                                                                      False -> let x1_30 :: Res = rt 0 xs_1 INil st_6
+                                                                        in case x1_30 of
+                                                                             Res v_7 st_7 -> case v_7 of
+                                                                                 RNil -> Res (RInt 0) st_7
+                                                                                 RCons h_14 t_1 -> let x_7 :: Int = n_1 - 1
+                                                                                   in f x_7 t_1 st_7
+                                                                                 _ -> fail "\"./LowFutamuraLazyMonadic.hs\",524:41"
+                                                                      True -> let x1_32 :: Res = rt 0 xs_1 INil st_6
+                                                                        in case x1_32 of
+                                                                             Res v_8 st_8 -> case v_8 of
+                                                                                 RNil -> Res (RInt 0) st_8
+                                                                                 RCons h_15 t_2 -> rt 0 h_15 INil st_8
+                                                                                 _ -> fail "\"./LowFutamuraLazyMonadic.hs\",524:41"
+                                                              in f n next_9 s1_9
+                                                 in case v_5 of
+                                                      RNil -> j RNil st_4
+                                                      RCons h_16 t_3 -> case st_4 of
+                                                          St next_10 h_17 -> let s1_10 :: St = St (next_10 + 1) (store h_17 next_10 (Thunk 1 (ICons h_16 INil)))
+                                                            in case s1_10 of
+                                                                 St next_11 h_18 -> let s1_11 :: St = St (next_11 + 1) (store h_18 next_11 (Thunk 2 (ICons t_3 INil)))
+                                                                   in let x_8 :: RV = RCons next_10 next_11
+                                                                      in j x_8 s1_11
+                                                      _ -> fail "\"./LowFutamuraLazyMonadic.hs\",524:41"
+           in case x1_37 of
+                Res v_9 x4 -> case v_9 of
+                    RInt i_3 -> i_3
+                    _ -> fail "\"./LowFutamuraLazyMonadic.hs\",1073:39"
 ---- run
 [0,1,1,2,3,5,8,13,21,34,55,89,144,233,377,610,987,1597,2584,4181,6765]
 102334155
 [0,1,4,9,16,25,36,49,64,81,100]
+([0,1,4,9,16,25,36,49,64,81,100],1000000)

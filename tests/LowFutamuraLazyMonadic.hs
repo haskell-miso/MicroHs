@@ -182,9 +182,10 @@ data V = VInt Int                -- an integer known at compile time
 --
 --  * a run time cell (ERef) is a heap address, whose cell holds a run time
 --    thunk (the number of its code, and its captures) or a value.  A thunk
---    that escapes, into a constructor field or the argument of a recursive
---    function (whose calls are made at run time), is allocated in a cell
---    (thunkCell, reify); forcing a cell is a call of rt at run time.
+--    that escapes, into a constructor field, the argument of a recursive
+--    function (whose calls are made at run time), or the captures of a run
+--    time thunk, is allocated in a cell (thunkRef), once per path, so that
+--    its value is shared; forcing a cell is a call of rt at run time.
 --
 -- A letrec bound lambda is an EFix, which unfolds to a closure that has
 -- itself in its environment.
@@ -423,12 +424,14 @@ data GS = GS
   , gsUnfolding :: [Sh ()]         -- the keys of the applications being unfolded here;
                                    -- meeting one of them again is a recursive application
   , gsSt        :: Low St          -- the heap (and the next free address) at this point
+  , gsCells     :: [(ShE Int, E)]  -- the compile time thunks put in cells on this path
+                                   -- (see thunkRef), with the cells
   }
 
 -- The state at the start of some code, numbering run time values from i,
 -- with the heap st
 initGS :: Int -> Low St -> GS
-initGS i st = GS{ gsNext = i, gsForced = [], gsFns = [], gsUnfolding = [], gsSt = st }
+initGS i st = GS{ gsNext = i, gsForced = [], gsFns = [], gsUnfolding = [], gsSt = st, gsCells = [] }
 
 withSt :: Low St -> GS -> GS
 withSt st s = s{ gsSt = st }
@@ -667,14 +670,57 @@ normEnv = mapM (\ (x, e) -> (,) x <$> norm e)
 reify :: MonadPE m => Env -> m Env
 reify = mapM one
   where one (x, e) = case e of
-                       EThk l t env -> do { c <- thunkCell l t env; a <- allocC c; j <- newId; pure (x, ERef j a) }
+                       EThk _ _ _ -> (,) x <$> thunkRef e
                        _ -> pure (x, e)
+
+-- The cell of a compile time thunk.  It is allocated the first time on a
+-- path, and the same cell is used after that, so that all the run time code
+-- that uses the thunk shares its value (call by need).  Two thunks with the
+-- same key (the same code, with the same compile time values and the same
+-- run time values) have the same value.
+thunkRef :: MonadPE m => E -> m E
+thunkRef e =
+  case e of
+    EThk l t env -> do
+      let key = keyE e
+      s <- getGS
+      case lookup key (gsCells s) of
+        Just r -> pure r
+        Nothing -> do
+          a <- thunkCell l t env >>= allocC
+          i <- newId
+          let r = ERef i a
+          modifyGS (\ s' -> s'{ gsCells = (key, r) : gsCells s' })
+          pure r
+    _ -> pure e
+
+-- The captures of a run time thunk: its compile time thunks (also those in
+-- the closures and recursive functions it captures) become their values if
+-- they were forced on this path, and cells otherwise.  A run time thunk is
+-- run later, so it cannot share a compile time thunk with the code around
+-- it, and the code of a thunk is generated once per shape: keeping compile
+-- time thunks would make the shapes grow without end in a lazy producer
+-- like from n = n : from (n + 1), whose tail would capture the thunk n + 1,
+-- whose tail would capture the thunk (n + 1) + 1, and so on.
+captures :: MonadPE m => Env -> m Env
+captures = mapM (\ (x, e) -> (,) x <$> one e)
+  where
+    one e =
+      case e of
+        EThk _ _ _ -> do
+          s <- getGS
+          case lookup (keyE e) (gsForced s) of
+            Just v -> one (EVal v)
+            Nothing -> thunkRef e
+        EVal (VClo y b env) -> EVal . VClo y b <$> captures env
+        EFix y b env -> EFix y b <$> captures env
+        _ -> pure e
 
 -- A thunk cell for a term in an environment (of the variables it uses): the
 -- number of the code for its shape, and the run time values it uses
 thunkCell :: MonadPE m => Id -> Term -> Env -> m (Low Cell)
 thunkCell l t env = do
-  env' <- normEnv env
+  env' <- captures env >>= normEnv
   let (ss, cs) = absEnv True env'
       key = SThk l ss
   record (IThk key)
@@ -774,7 +820,7 @@ cellOf e =
   case e of
     ERef _ a -> pure a
     EVal v -> allocC [| Done ~(box v) |]
-    EThk l t env -> thunkCell l t env >>= allocC
+    EThk _ _ _ -> thunkRef e >>= cellOf
     EFix _ _ _ -> error "peval: a function in a data structure"
 
 -- Apply a function to the arguments of a spine, with more arguments after
@@ -893,7 +939,7 @@ define name xs key b ss = do
           -- the body: nothing is forced yet, the function itself is in scope,
           -- and the heap is the one it is called with
           let (benv', _, i1) = rebuild (ctxCode c) ss ps (gsNext s)
-          putGS s{ gsNext = i1, gsForced = [], gsFns = (key, fn) : gsFns s, gsSt = st0 }
+          putGS s{ gsNext = i1, gsForced = [], gsFns = (key, fn) : gsFns s, gsSt = st0, gsCells = [] }
           evalT b benv' KRet
   modifyGS (\ s' -> s'{ gsFns = (key, fn) : gsFns s' })
   pure fn
@@ -1244,6 +1290,7 @@ prelude = defs
   , "nth = letrec nth = \\ n xs -> if0 n then case xs of { [] -> 0; h : t -> h }" ++
     "                              else case xs of { [] -> 0; h : t -> nth (n - 1) t } in nth"
   , "map = letrec map = \\ f xs -> case xs of { [] -> []; x : xs' -> f x : map f xs' } in map"
+  , "from = letrec from = \\ n -> n : from (n + 1) in from"     -- n, n + 1, n + 2, ...
   ]
 
 term :: String -> T
@@ -1269,10 +1316,16 @@ pfibs = compileFun fibsProgram
 psquares :: Low (Int -> Int)
 psquares = compileFun (term "\\ input -> letrec nats = 0 : map (\\ x -> x + 1) nats in nth input (map (\\ x -> x * x) nats)")
 
+-- A lazy producer: from does not use its argument, so n + 1 is delayed, and
+-- each cell of the list shares it with the tail
+pfrom :: Low (Int -> Int)
+pfrom = compileFun (term "\\ input -> nth input (map (\\ x -> x * x) (from 0))")
+
 -- Run time code: the compiled programs are spliced in.
-fibsC, squaresC :: Int -> Int
+fibsC, squaresC, fromC :: Int -> Int
 fibsC = pfibs
 squaresC = psquares
+fromC = pfrom
 
 main :: IO ()
 main = do
@@ -1284,7 +1337,10 @@ main = do
   putStr (lowString (toCompactC True "pfibs" (reflect pfibs)))
   putStrLn "---- psquares = compileFun (\\ input -> letrec nats = 0 : map (\\ x -> x + 1) nats in nth input (map (\\ x -> x * x) nats)), reflected"
   putStr (lowString (lowPretty (reflect psquares)))
+  putStrLn "---- pfrom = compileFun (\\ input -> nth input (map (\\ x -> x * x) (from 0))), reflected"
+  putStr (lowString (lowPretty (reflect pfrom)))
   putStrLn "---- run"
   print (map fibsC [0 .. 20])
   print (fibsC 40)                  -- fib 46 is the largest that fits a 32 bit Int
   print (map squaresC [0 .. 10])
+  print (map fromC [0 .. 10], fromC 1000)
