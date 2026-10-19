@@ -120,6 +120,7 @@ jsKinds =
 
 ccall :: EType -> Exp -> Exp
 ccall t f =
+  -- An import can be polymorphic (e.g. StablePtr a -> IO ()), look past the forall.
   case getArrows (dropForallContext t) of
     (_, EApp (EVar io) _) | io == identIO ->
       f
