@@ -102,6 +102,8 @@
     - --ignore-glob=tests/LowFutamuraMonadic.hs
     - --ignore-glob=tests/LowFutamuraLazyMonadic.hs
     - --ignore-glob=tests/LowCompactC.hs
+    - --ignore-glob=tests/LowArith.hs
+    - --ignore-glob=tests/LowInstance.hs
     - --ignore-glob=tests/StagedLib.hs
     - --ignore-glob=tests/Fix.hs
     - --ignore-glob=tests/Unboxed.hs

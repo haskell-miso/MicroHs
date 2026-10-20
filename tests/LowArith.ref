@@ -1,0 +1,14 @@
+192
+192
+-- type: Word
+(12 * ((2 + 2) * 2)) * 2
+#include <stdint.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <math.h>
+
+
+
+uint64_t arith() {
+  return ((12 * ((2 + 2) * 2)) * 2);
+}
