@@ -65,7 +65,7 @@ stageModule levels classes imported dmdl =
       -- All the splices of the module are loaded into the runtime together.
       fns :: [SpliceFn]
       fns = unsafeCoerce $ translateWithMap tmap (here, compileOpt (encList (reverse rsplices)))
-      stage (i, e) | hasSplice e = (i, quote0 0 $ eval0 fns M.empty e)
+      stage (i, e) | hasSplice e = (i, dropDeadLets $ quote0 0 $ eval0 fns M.empty e)
                    | otherwise   = (i, e)
       objs'' = map stage objs'
       staged = [ d | (d, (_, e)) <- zip objs'' objs, hasSplice e ]
@@ -258,6 +258,19 @@ eval0 fns env ae =
   where
     getApp (App f a) = case getApp f of (h, as) -> (h, as ++ [a])
     getApp e = (e, [])
+
+-- Remove the let bindings that the splices left unused, e.g., the dictionaries
+-- that only a splice needed.  They can be meta level, and then they are not
+-- in the object code.
+dropDeadLets :: Exp -> Exp
+dropDeadLets ae =
+  case ae of
+    App (Lam x b) a ->
+      let b' = dropDeadLets b
+      in  if x `elem` freeVars b' then App (Lam x b') (dropDeadLets a) else b'
+    App f a -> App (dropDeadLets f) (dropDeadLets a)
+    Lam x b -> Lam x (dropDeadLets b)
+    _ -> ae
 
 -- Run a splice function (a value in the runtime system) on the code of its variables.
 runSplice :: SpliceFn -> [Code] -> Code
