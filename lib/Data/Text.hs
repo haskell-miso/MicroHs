@@ -106,6 +106,7 @@ import Control.DeepSeq.Class
 import qualified Data.Char as C
 import qualified Data.Char.Unicode as U
 import qualified Data.List as L
+import Data.List.NonEmpty_Type(NonEmpty(..))
 import Data.String
 import qualified Data.ByteString.Internal as BS
 import Data.Text.Internal
@@ -155,9 +156,14 @@ instance IsString Text where
 
 instance Semigroup Text where
   (<>) = append
+  sconcat (t :| ts) = concat (t : ts)
+  stimes n t
+    | n <= 0    = error "stimes: positive multiplier expected"
+    | otherwise = replicate (fromIntegral n) t
 
 instance Monoid Text where
   mempty = empty
+  mconcat = concat
 
 instance NFData Text where
   rnf (T bs) = seq bs ()
@@ -386,7 +392,7 @@ takeWhileEnd p t@(T b) = slice (suffixStart p b) (bytes t) t
 -- | Number of non-overlapping occurrences of the pattern.
 count :: Text -> Text -> Int
 count p@(T pb) (T b)
-  | null p    = error "splitOn: empty"
+  | null p    = error "Data.Text.count: empty pattern"
   | otherwise = go 0 0
   where
     go k i = case BS.primBSfind pb b i of
@@ -432,7 +438,11 @@ justifyRight k c t | len >= k  = t
   where len = length t
 
 compareLength :: Text -> Int -> Ordering
-compareLength t n = compare (length t) n
+compareLength t@(T b) n
+  | n < 0 = GT
+  -- more than n characters: stop after the first n
+  | BS.primUTF8offset b n < bytes t = GT
+  | otherwise = compare (length t) n
 
 dropEnd :: Int -> Text -> Text
 dropEnd n t@(T b) = slice 0 (BS.primUTF8offsetEnd b n) t
