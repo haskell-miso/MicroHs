@@ -204,14 +204,8 @@ uncons t | null t    = Nothing
          | otherwise = Just (head t, tail t)
 
 replicate :: Int -> Text -> Text
-replicate n t | n <= 0    = empty
-              | otherwise = go n
-  where
-    -- by doubling: O(log n) appends, and at most twice the result copied
-    go 1 = t
-    go k = case go (k `quot` 2) of
-             h | even k    -> append h h
-               | otherwise -> append t (append h h)
+replicate n t@(T b) | n <= 0    = empty
+                    | otherwise = T (BS.concatBS (L.replicate n b))
 
 splitOn :: Text -> Text -> [Text]
 splitOn p@(T pb) t@(T tb)
@@ -572,18 +566,20 @@ maxChunk = 4096
 smallRest :: Int
 smallRest = 256
 
--- | The next chunk of at most @sz@ characters from the start of @rest@ (or
--- all of a small @rest@).
-chunkOf :: Int -> BS.ByteString -> BS.ByteString
-chunkOf sz rest
-  | BS.primBSlength rest <= smallRest = rest
-  | otherwise = BS.primBSsubstr rest 0 (BS.primUTF8offset rest sz)
+-- | The next chunk of @b@ from byte offset @i@: at most @sz@ characters
+-- (or all of a small rest).
+chunkOf :: Int -> BS.ByteString -> Int -> BS.ByteString
+chunkOf sz b i
+  | n - i <= smallRest = if i == 0 then b else BS.primBSsubstr b i (n - i)
+  | otherwise = BS.primBSsubstr b i (BS.primUTF8offsetFrom b i sz - i)
+  where n = BS.primBSlength b
 
--- | The last chunk of at most @sz@ characters of @front@, as an offset.
-chunkStartEnd :: Int -> BS.ByteString -> Int
-chunkStartEnd sz front
-  | BS.primBSlength front <= smallRest = 0
-  | otherwise = BS.primUTF8offsetEnd front sz
+-- | Where the chunk of @b@ that ends at byte offset @i@ starts: at most
+-- @sz@ characters (or all of a small front).
+chunkStartBefore :: Int -> BS.ByteString -> Int -> Int
+chunkStartBefore sz b i
+  | i <= smallRest = 0
+  | otherwise = BS.primUTF8offsetEndBefore b i sz
 
 -- | Offset of the first character at or after @i@ that does not satisfy @p@.
 prefixEnd :: (Char -> Bool) -> BS.ByteString -> Int -> Int
@@ -593,11 +589,10 @@ prefixEnd p b = go 16
     go sz i
       | i >= n    = n
       | otherwise =
-          case (if i == 0 then b else BS.primBSsubstr b i (n - i)) of
-            rest -> case chunkOf sz rest of
-              chunk -> case leading p (BS.primBSfromUTF8 chunk) of
-                k | k < 0     -> go (min maxChunk (sz * 2)) (i + BS.primBSlength chunk)
-                  | otherwise -> i + BS.primUTF8offset chunk k
+          case chunkOf sz b i of
+            chunk -> case leading p (BS.primBSfromUTF8 chunk) of
+              k | k < 0     -> go (min maxChunk (sz * 2)) (i + BS.primBSlength chunk)
+                | otherwise -> i + BS.primUTF8offset chunk k
 
 -- | Offset where the longest suffix whose characters satisfy @p@ starts.
 suffixStart :: (Char -> Bool) -> BS.ByteString -> Int
@@ -606,12 +601,11 @@ suffixStart p b = go 16 (BS.primBSlength b)
     go sz i
       | i <= 0    = 0
       | otherwise =
-          case (if i == BS.primBSlength b then b else BS.primBSsubstr b 0 i) of
-            front -> case chunkStartEnd sz front of
-              s -> case BS.primBSsubstr front s (i - s) of
-                chunk -> case leading p (L.reverse (BS.primBSfromUTF8 chunk)) of
-                  k | k < 0     -> go (min maxChunk (sz * 2)) s
-                    | otherwise -> s + BS.primUTF8offsetEnd chunk k
+          case chunkStartBefore sz b i of
+            s -> case (if s == 0 && i == BS.primBSlength b then b else BS.primBSsubstr b s (i - s)) of
+              chunk -> case leading p (L.reverse (BS.primBSfromUTF8 chunk)) of
+                k | k < 0     -> go (min maxChunk (sz * 2)) s
+                  | otherwise -> s + BS.primUTF8offsetEnd chunk k
 
 -- | The number of leading characters that satisfy @p@, or -1 if all do.
 leading :: (Char -> Bool) -> String -> Int
@@ -627,9 +621,8 @@ chunksFrom b = go chunkSizes 0
     n = BS.primBSlength b
     go (sz:szs) i
       | i >= n    = []
-      | otherwise = case (if i == 0 then b else BS.primBSsubstr b i (n - i)) of
-                      rest -> case chunkOf sz rest of
-                        chunk -> BS.primBSfromUTF8 chunk : go szs (i + BS.primBSlength chunk)
+      | otherwise = case chunkOf sz b i of
+                      chunk -> BS.primBSfromUTF8 chunk : go szs (i + BS.primBSlength chunk)
     go [] _ = []
 
 chunkSizes :: [Int]

@@ -569,7 +569,8 @@ enum node_tag { T_FREE, T_IND, T_AP, T_INT, T_INT64, T_DBL, T_FLT32, T_PTR, T_FU
                 T_BSUNPACK, T_BSREPLICATE, T_BSLENGTH, T_BSSUBSTR, T_BSINDEX,
                 T_BSNEW, T_BSREAD, T_BSWRITE, T_BSFREEZE, T_BSAPPBYTE, T_BSAPPCHAR, 
                 T_BSFROMUTF8, T_BSHEADUTF8, T_BSTAILUTF8,
-                T_UTF8LENGTH, T_UTF8OFFSET, T_UTF8OFFSETEND, T_UTF8DECODE, T_UTF8DECODEEND,
+                T_UTF8LENGTH, T_UTF8OFFSET, T_UTF8OFFSETEND, T_UTF8OFFSETFROM, T_UTF8OFFSETENDBEFORE,
+                T_UTF8DECODE, T_UTF8DECODEEND,
                 T_UTF8REVERSE, T_UTF8SKIPSPACE, T_UTF8SKIPNONSPACE, T_UTF8TRIMSPACEEND,
                 T_BSFIND, T_BSRFIND, T_BSASCIICASE, T_BSISASCII, T_BSCONCAT,
                 T_BSAPPENDDOT, T_BSGRAB, T_BSGRABLEN,
@@ -2503,6 +2504,8 @@ struct {
   { "utf8length", T_UTF8LENGTH },
   { "utf8offset", T_UTF8OFFSET },
   { "utf8offsetend", T_UTF8OFFSETEND },
+  { "utf8offsetfrom", T_UTF8OFFSETFROM },
+  { "utf8offsetendbefore", T_UTF8OFFSETENDBEFORE },
   { "utf8decode", T_UTF8DECODE },
   { "utf8decodeend", T_UTF8DECODEEND },
   { "utf8reverse", T_UTF8REVERSE },
@@ -5113,12 +5116,14 @@ utf8length(struct bytestring bs)
   return n;
 }
 
-/* Byte offset after the first k characters (clamped to the string). */
+/* Byte offset after the first k characters from byte offset i (clamped
+ * to the string). */
 static value_t
-utf8offset(struct bytestring bs, value_t k)
+utf8offsetfrom(struct bytestring bs, value_t i0, value_t k)
 {
   const uint8_t *p = bs.bs_array;
-  size_t i = 0, n = bs.bs_size;
+  size_t n = bs.bs_size;
+  size_t i = i0 < 0 ? 0 : (size_t)i0 > n ? n : (size_t)i0;
   for (; k > 0 && i < n; k--) {
     i++;
     while (i < n && UTF8CONT(p[i]))
@@ -5127,18 +5132,34 @@ utf8offset(struct bytestring bs, value_t k)
   return i;
 }
 
-/* Byte offset where the last k characters start (clamped to the string). */
+/* Byte offset where the last k characters before byte offset i start
+ * (clamped to the string). */
 static value_t
-utf8offsetend(struct bytestring bs, value_t k)
+utf8offsetendbefore(struct bytestring bs, value_t i0, value_t k)
 {
   const uint8_t *p = bs.bs_array;
-  size_t i = bs.bs_size;
+  size_t n = bs.bs_size;
+  size_t i = i0 < 0 ? 0 : (size_t)i0 > n ? n : (size_t)i0;
   for (; k > 0 && i > 0; k--) {
     i--;
     while (i > 0 && UTF8CONT(p[i]))
       i--;
   }
   return i;
+}
+
+/* Byte offset after the first k characters (clamped to the string). */
+static value_t
+utf8offset(struct bytestring bs, value_t k)
+{
+  return utf8offsetfrom(bs, 0, k);
+}
+
+/* Byte offset where the last k characters start (clamped to the string). */
+static value_t
+utf8offsetend(struct bytestring bs, value_t k)
+{
+  return utf8offsetendbefore(bs, bs.bs_size, k);
 }
 
 /* Decode the character starting at byte offset i (which must be < size).
@@ -6389,6 +6410,23 @@ evali(NODEPTR an)
     case T_UTF8SKIPSPACE:    SETINT(n, utf8skip(xfp->payload, xi, 0)); break;
     case T_UTF8SKIPNONSPACE: SETINT(n, utf8skip(xfp->payload, xi, 1)); break;
     default:                 SETBSTR(n, mkForPtrFree(bsasciicase(xfp->payload, xi))); break;
+    }
+    RET;
+
+  case T_UTF8OFFSETFROM:
+  case T_UTF8OFFSETENDBEFORE:
+    CHECK(3);
+    {
+      value_t xk;
+      xfp = evalbstr(ARG(TOP(0)));
+      xi = evalint(ARG(TOP(1)));
+      xk = evalint(ARG(TOP(2)));
+      POP(3);
+      n = TOP(-1);
+      if (tag == T_UTF8OFFSETFROM)
+        SETINT(n, utf8offsetfrom(xfp->payload, xi, xk));
+      else
+        SETINT(n, utf8offsetendbefore(xfp->payload, xi, xk));
     }
     RET;
 

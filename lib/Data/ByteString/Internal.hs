@@ -113,6 +113,16 @@ primUTF8offset = _primitive "utf8offset"
 primUTF8offsetEnd :: ByteString -> Int -> Int
 primUTF8offsetEnd = _primitive "utf8offsetend"
 
+-- | @primUTF8offsetFrom bs i n@: byte offset after the first n characters
+-- from byte offset i (clamped).
+primUTF8offsetFrom :: ByteString -> Int -> Int -> Int
+primUTF8offsetFrom = _primitive "utf8offsetfrom"
+
+-- | @primUTF8offsetEndBefore bs i n@: byte offset where the last n
+-- characters before byte offset i start (clamped).
+primUTF8offsetEndBefore :: ByteString -> Int -> Int -> Int
+primUTF8offsetEndBefore = _primitive "utf8offsetendbefore"
+
 -- | Decode the character starting at a byte offset.
 -- The result is @ord c * 8 + bytes@.
 primUTF8decode :: ByteString -> Int -> Int

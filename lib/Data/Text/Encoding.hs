@@ -108,15 +108,18 @@ modifiedNul = BS.pack [0xC0, 0x80]
 
 -- | Replace every occurrence of the first string.
 replaceBytes :: ByteString -> ByteString -> ByteString -> ByteString
-replaceBytes old new s
-  | BSI.primBSfind old s 0 < 0 = s
-  | otherwise = BSI.concatBS (go 0)
+replaceBytes old new s =
+  case BSI.primBSfind old s 0 of
+    j | j < 0     -> s
+      | otherwise -> BSI.concatBS (from 0 j)
   where
     n = BSI.primBSlength s
     m = BSI.primBSlength old
+    -- the piece from i up to the match at j, then the rest
+    from i j = BSI.primBSsubstr s i (j - i) : new : go (j + m)
     go i = case BSI.primBSfind old s i of
              j | j < 0     -> [BSI.primBSsubstr s i (n - i)]
-               | otherwise -> BSI.primBSsubstr s i (j - i) : new : go (j + m)
+               | otherwise -> from i j
 
 encodeUtf16LE :: Text -> ByteString
 encodeUtf16LE = BS.pack . concatMap f . unpack
