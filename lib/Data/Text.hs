@@ -158,7 +158,7 @@ instance Semigroup Text where
   (<>) = append
   sconcat (t :| ts) = concat (t : ts)
   stimes n t
-    | n <= 0    = error "stimes: positive multiplier expected"
+    | n < 0     = error "Data.Text.stimes: negative multiplier"
     | otherwise = replicate (fromIntegral n) t
 
 instance Monoid Text where
