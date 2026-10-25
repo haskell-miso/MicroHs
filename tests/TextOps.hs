@@ -117,9 +117,9 @@ main = do
   check "isInfixOf empty" inputs (T.isInfixOf T.empty . pack) (const True)
   check "stripPrefix" withNeedle (\ (q, s) -> fmap u (T.stripPrefix (pack q) (pack s))) (uncurry L.stripPrefix)
   check "stripSuffix" withNeedle (\ (q, s) -> fmap u (T.stripSuffix (pack q) (pack s))) (uncurry L.stripSuffix)
-  check "breakOn" (("", "abc") : withNeedle) (\ (q, s) -> case T.breakOn (pack q) (pack s) of (a, b) -> (u a, u b))
+  check "breakOn" withNeedle (\ (q, s) -> case T.breakOn (pack q) (pack s) of (a, b) -> (u a, u b))
                                              (uncurry refBreakOn)
-  check "breakOnEnd" (("", "abc") : withNeedle)
+  check "breakOnEnd" withNeedle
     (\ (q, s) -> case T.breakOnEnd (pack q) (pack s) of (a, b) -> (u a, u b))
     (\ (q, s) -> case refBreakOn (L.reverse q) (L.reverse s) of (a, b) -> (L.reverse b, L.reverse a))
   check "splitOn" withNeedle (\ (q, s) -> us (T.splitOn (pack q) (pack s))) (uncurry refSplitOn)

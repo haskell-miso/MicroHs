@@ -292,7 +292,9 @@ intercalate :: Text -> [Text] -> Text
 intercalate s ts = concat (L.intersperse s ts)
 
 replace :: Text -> Text -> Text -> Text
-replace s r = intercalate r . splitOn s
+replace s r
+  | null s    = error "Data.Text.replace: empty input"
+  | otherwise = intercalate r . splitOn s
 
 isPrefixOf :: Text -> Text -> Bool
 isPrefixOf p t = bytes p <= bytes t && slice 0 (bytes p) t == p
@@ -381,10 +383,12 @@ break p = span (not . p)
 
 -- | Split at the first occurrence of the pattern (which is part of the second component).
 breakOn :: Text -> Text -> (Text, Text)
-breakOn (T p) t@(T b) =
-  case BS.primBSfind p b 0 of
-    i | i < 0     -> (t, empty)
-      | otherwise -> (slice 0 i t, slice i (bytes t) t)
+breakOn p'@(T p) t@(T b)
+  | null p'   = error "Data.Text.breakOn: empty input"
+  | otherwise =
+      case BS.primBSfind p b 0 of
+        i | i < 0     -> (t, empty)
+          | otherwise -> (slice 0 i t, slice i (bytes t) t)
 
 takeWhileEnd :: (Char -> Bool) -> Text -> Text
 takeWhileEnd p t@(T b) = slice (suffixStart p b) (bytes t) t
@@ -411,10 +415,12 @@ chunksOf n t | n <= 0 || null t = []
              | otherwise = take n t : chunksOf n (drop n t)
 
 breakOnEnd :: Text -> Text -> (Text, Text)
-breakOnEnd p@(T pb) t@(T b) =
-  case BS.primBSrfind pb b of
-    i | i < 0     -> (empty, t)
-      | otherwise -> case i + bytes p of j -> (slice 0 j t, slice j (bytes t) t)
+breakOnEnd p@(T pb) t@(T b)
+  | null p    = error "Data.Text.breakOnEnd: empty input"
+  | otherwise =
+      case BS.primBSrfind pb b of
+        i | i < 0     -> (empty, t)
+          | otherwise -> case i + bytes p of j -> (slice 0 j t, slice j (bytes t) t)
 
 replicateChar :: Int -> Char -> Text
 replicateChar n c = pack (L.replicate n c)
