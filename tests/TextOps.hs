@@ -19,9 +19,12 @@ pieces =
   , "\x202F", "\x3000", "\xFEFF", "\233", "\8364", "\931", "\128512", "::"
   ]
 
--- A deterministic generator: a list of seeds from a linear congruential generator.
+-- A deterministic generator: a list of seeds from a linear congruential
+-- generator.  The arithmetic is on Integer, since Int may have 32 bits
+-- (emscripten) and MicroHs checks Int arithmetic for overflow; the seeds
+-- are below 2^31, so they fit in any Int.
 seeds :: [Int]
-seeds = L.tail (L.iterate (\ x -> (x * 1103515245 + 12345) `mod` 2147483648) 42)
+seeds = L.map fromInteger (L.tail (L.iterate (\ x -> (x * 1103515245 + 12345) `mod` 2147483648) (42 :: Integer)))
 
 -- | @n@ strings of up to @k@ pieces each.
 strings :: Int -> Int -> [String]
@@ -181,6 +184,6 @@ main = do
 
   -- Joining must finish while another thread is runnable (the runtime
   -- primitive is only given evaluated lists, so it cannot be preempted).
-  _ <- forkIO (mapM_ (\ _ -> return ()) [1 :: Int ..])
+  _ <- forkIO (mapM_ return (L.repeat ()))
   print (T.length (T.concat (L.replicate 100000 (pack "ab"))))
   print (L.length (T.lines (T.unlines (L.replicate 60000 (pack "x")))))
