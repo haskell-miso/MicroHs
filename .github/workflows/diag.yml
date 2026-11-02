@@ -1,19 +1,12 @@
 name: x86 diag
 on: push
 jobs:
-  alpine-x86:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-24.04, ubuntu-26.04, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
+  alpine-x86-sudows:
+    runs-on: ubuntu-26.04
     steps:
-    - name: host info
-      run: |
-        uname -a; cat /etc/os-release | head -3
-        cat /proc/cmdline
-        grep -i ia32 /boot/config-$(uname -r) || true
-        ls /proc/sys/abi 2>/dev/null; cat /proc/sys/abi/* 2>/dev/null || true
+    - run: ls -l /usr/bin/sudo* /etc/alternatives/sudo 2>&1 || true
+    - name: use classic sudo (sudo-rs ignores -E)
+      run: sudo update-alternatives --set sudo /usr/bin/sudo.ws
     - uses: jirutka/setup-alpine@v1
       with:
         arch: x86
