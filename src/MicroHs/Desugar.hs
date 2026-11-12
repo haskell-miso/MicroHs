@@ -4,6 +4,7 @@
 module MicroHs.Desugar(
   JSKind(..), jsKind,
   desugar,
+  isStaticPtrIdent,
   LDef, showLDefs,
   encodeInteger,
   ) where
@@ -32,7 +33,39 @@ type LDef = (Ident, Exp)
 
 desugar :: Flags -> TModule [EDef] -> TModule [LDef]
 desugar flags tm =
-  setBindings tm $ map lazier $ checkDup $ concat $ zipWith (dsDef flags (tModuleName tm)) [1..] (tBindingsOf tm)
+  setBindings tm $ map lazier $ checkDup $ concatMap liftStatic $ concat $ zipWith (dsDef flags (tModuleName tm)) [1..] (tBindingsOf tm)
+
+-- StaticPointers (see lib/Mhs/StaticPtr.hs).
+-- Move every 'static e' in a definition of f to a top level definition
+--   f$staticN = _mkStaticPtr "M.f$staticN" e
+-- The name is how the pointer is found at runtime (the linker puts all of them
+-- in Mhs.StaticPtr._staticPtrTable), so it must not depend on anything but the source.
+liftStatic :: LDef -> [LDef]
+liftStatic d@(f, ae) | identStatic `notElem` allVarsExp ae = [d]
+                     | otherwise = (f, ae') : reverse sds
+  where
+    (ae', sds) = go [] ae []
+    go bs (App (Var s) e) ds | s == identStatic =
+      if any (`elem` bs) (freeVars e) then
+        errorMessage (getSLoc s) "static: the expression is not closed, it uses a local variable or a constraint of the enclosing function"
+      else
+        let (e', ds') = go bs e ds
+            i = addIdentSuffix f (staticPtrSuffix ++ show (length ds'))
+        in  (Var i, (i, app2 (Var (mkIdent "Mhs.StaticPtr._mkStaticPtr")) (Lit (LStr (unIdent i))) e') : ds')
+    go _  (Var s)   _  | s == identStatic = errorMessage (getSLoc s) "static: must be applied to an expression"
+    go bs (App a b) ds = let (a', ds') = go bs a ds; (b', ds'') = go bs b ds' in (App a' b', ds'')
+    go bs (Lam i e) ds = let (e', ds') = go (i:bs) e ds in (Lam i e', ds')
+    go _  e         ds = (e, ds)
+
+identStatic :: Ident
+identStatic = mkIdent "Mhs.StaticPtr._static"
+
+staticPtrSuffix :: String
+staticPtrSuffix = "$static"
+
+-- Is this the name of a definition made by liftStatic?
+isStaticPtrIdent :: Ident -> Bool
+isStaticPtrIdent i = staticPtrSuffix `isInfixOf` unIdent i
 
 dsDef :: Flags -> IdentModule -> Int -> EDef -> [LDef]
 dsDef flags mn ffiNo adef =

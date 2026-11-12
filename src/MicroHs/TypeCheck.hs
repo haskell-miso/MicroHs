@@ -909,6 +909,8 @@ tLookupV i = do
     -- This allows ordinary functions/methods to have the same name as a
     -- field, and they will be preferred.
     STMany es | [Entry e s] <- filter (\ (Entry e' _) -> not (isGetExpr e')) es -> return (sloc e, s)
+    -- StaticPointers: 'static' is a keyword, unless the program has its own.
+    STNone | TCExpr <- tcm, isIdent "static" i -> tLookupV (mkBuiltin (getSLoc i) "_static")
     _ -> tLookup (msgTCMode tcm) i       -- generate the error normally
 
 tInst :: HasCallStack => Expr -> EType -> T (Expr, EType)
