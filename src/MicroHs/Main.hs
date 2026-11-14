@@ -13,7 +13,7 @@ import System.Environment
 import MicroHs.Compile
 import MicroHs.CompileCache
 import MicroHs.Config
-import MicroHs.Desugar(LDef)
+import MicroHs.Desugar(LDef, isStaticPtrIdent)
 import MicroHs.EncodeData(encList)
 import MicroHs.Error
 import MicroHs.Exp(Exp(Var, Lit))
@@ -356,7 +356,7 @@ mainCompile flags mn = do
     return (cash', rds)
 
   t1 <- getTimeMilli
-  allDefs <- addEmbedPkgs flags allDefs'
+  allDefs <- addStaticPtrs <$> addEmbedPkgs flags allDefs'
   let
     mainName = qualIdent rmn (mkIdent "main")
     cmdl = (allDefs, if noLink flags then Lit (LInt 0) else Var mainName)
@@ -562,6 +562,13 @@ addEmbedPkgs flags ds | null (embedPkgs flags) = return ds
   when (verbosityGT flags 0) $
     putStrLn $ "Embedded " ++ show (embedPkgs flags)
   return $ map rep ds
+
+-- Make Mhs.StaticPtr._staticPtrTable the list of all static pointers in the program.
+addStaticPtrs :: [LDef] -> [LDef]
+addStaticPtrs ds = map rep ds
+  where ps = encList [ Var i | (i, _) <- ds, isStaticPtrIdent i ]
+        rep ie@(i, _) | i == mkIdent "Mhs.StaticPtr._staticPtrTable" = (i, ps)
+                      | otherwise = ie
 
 expandPath :: Maybe FilePath -> FilePath -> IO FilePath
 expandPath = expandEnv . expandEnvLookup
