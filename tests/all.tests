@@ -42,6 +42,7 @@ Floating
 Default
 Multi
 Exists
+ExistDict
 TypeEq
 Sieve
 Dict

@@ -482,25 +482,38 @@ withDict i c ta = do
   return a
 
 addDict :: HasCallStack => (Ident, EConstraint) -> T ()
-addDict (i, c) = do
+addDict (i, c) = addDictE (EVar i) c
+
+addDictE :: HasCallStack => Expr -> EConstraint -> T ()
+addDictE e c = do
   c' <- derefUVar c
   if null (metaTvs [c']) then
-    addInstDict i c'
+    addInstDict e c'
    else
-    -- With constraint variables we might get unification variables.
-    -- We stash them away in hope that we will learn more later.
-    addMetaDict i c'
+    case getAppM c' of
+      -- Add the components of a tuple separately, so that the ones without
+      -- unification variables can be used now.  E.g., the context of
+      --   data T p = forall a . (Eq p, Show a) => C a
+      -- when p is not known yet where C is matched.
+      Just (iCls, cs) | Just n <- getTupleConstr iCls, length cs == n ->
+        sequence_ [ addDictE (mkTupleSel k n `EApp` e) ck | (k, ck) <- zip [0..] cs ]
+      _ ->
+        -- With constraint variables we might get unification variables.
+        -- We stash them away in hope that we will learn more later.
+        addMetaDict e c'
 
-addInstDict :: HasCallStack => Ident -> EConstraint -> T ()
-addInstDict di c = do
-  ics <- expandDict (EVar di) c
+addInstDict :: HasCallStack => Expr -> EConstraint -> T ()
+addInstDict e c = do
+  ics <- expandDict e c
   -- Type equalities are handled differently.
   let addeq [] = return []
       addeq ((_, _, _, EApp (EApp (EVar eq) t1) t2, _):is) | eq == identTypeEq = do addEqDict t1 t2; addeq is
       addeq (i:is) = (i :) <$> addeq is
   ics' <- addeq ics
   addInstTable ics'
-  addArgDict di c
+  case e of
+    EVar di -> addArgDict di c
+    _       -> return ()
 
 addEqDict :: EType -> EType -> T ()
 addEqDict t1 t2 = do
@@ -508,10 +521,10 @@ addEqDict t1 t2 = do
 --  tcTrace ("withEqDict: " ++ show (is, (t1,t2), (addTypeEq t1 t2 is)))
   putTypeEqTable (addTypeEq t1 t2 is)
 
-addMetaDict :: HasCallStack => Ident -> EConstraint -> T ()
-addMetaDict i c = do
+addMetaDict :: HasCallStack => Expr -> EConstraint -> T ()
+addMetaDict e c = do
   ms <- gets metaTable
-  putMetaTable ((i,c) : ms)
+  putMetaTable ((e,c) : ms)
 
 addArgDict :: HasCallStack => Ident -> EConstraint -> T ()
 addArgDict i c = do
@@ -4138,7 +4151,7 @@ addMetaDicts :: T ()
 addMetaDicts = do
   ms <- gets metaTable
   putMetaTable []
-  mapM_ addDict ms  -- Try adding them
+  mapM_ (uncurry addDictE) ms  -- Try adding them
 
 -----------------------------
 
