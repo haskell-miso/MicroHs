@@ -23,7 +23,7 @@ type ForExpTable = [(Ident, Ident, CType, IsJavascript)]
 -- Version number of combinator file.
 -- Must match version in eval.c.
 combVersion :: String
-combVersion = "v8.4\n"
+combVersion = "v9.2\n"
 
 -- Remove unused definitions.  Only used for dumping definitions.
 removeUnused :: CMdl -> [LDef]
@@ -121,7 +121,7 @@ toStringP ae =
     Lit (LStr s) ->
       -- Encode very short string directly as combinators.
       if length s > 1 then
-        toStringP (App (Lit (LPrim "fromUTF8")) (Lit (LBStr (BS.pack (utf8encode s)))))
+        toStringP (App (litPrim "fromUTF8") (Lit (LBStr (BS.pack (utf8encode s)))))
       else
         toStringP (encodeString s)
     Lit (LBStr s) | BS.length s > 100 -> byteString s -- arbitrary limit

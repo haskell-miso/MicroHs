@@ -2,6 +2,7 @@
 -- See LICENSE file for full license.
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns -Wno-unused-imports -Wno-dodgy-imports #-}
 module MicroHs.Desugar(
+  JSKind(..), jsKind, jsAsync,
   desugar,
   LDef, showLDefs,
   encodeInteger,
@@ -45,14 +46,17 @@ dsDef flags mn ffiNo adef =
                  map fst (either id (map snd) ets)   -- strict flags
           in (qualIdent mn c, encConstr i n ss)
       in  zipWith dsConstr [0::Int ..] cs
-    Newtype _ (Constr _ _ c _ _) _ -> [ (qualIdent mn c, Lit (LPrim "I")) ]
+    Newtype _ (Constr _ _ c _ _) _ -> [ (qualIdent mn c, Lit (LPrim PI)) ]
     Fcn f eqns -> [(f, wrapTick (useTicks flags) f $ dsEqns (getSLoc f) eqns)]
-    ForImp cc _ ie i at ->
+    ForImp cc sf ie i at ->
       -- An explicit forall (as GHC allows) does not change the C type.
       let dropForalls (EForall _ _ ty) = dropForalls ty
           dropForalls ty = ty
           t = dropForalls at
-      in  [(i, ccall t $ Lit $ mkForImp mn ffiNo cc ie i t)]
+          imp = Lit $ mkForImp mn ffiNo cc sf ie i t
+      in  case cc of
+            Cjavascript | jsAsync sf (fromMaybe "" ie) -> [(i, jsAwait t imp)]
+            _                                          -> [(i, ccall t imp)]
     -- Foreign exports don't fit very well into the desugared syntax.
     -- We represent
     --   foreign export "foo" bar :: ty
@@ -76,16 +80,65 @@ dsDef flags mn ffiNo adef =
 
 -- Code for a 'foreign import'.
 -- If the function is impure then wrap a performIO around the call.
+-- An asynchronous JavaScript import (see jsAsync)
+--   foreign import javascript [safe|interruptible] "code" f :: a1 -> ... -> an -> IO r
+-- is compiled (MicroHs.FFI) into a C function that returns the Promise of the
+-- (async) JavaScript code as a JSVal.  Wrap it so that the thread then waits for
+-- the Promise with the IO.jsawait primitive, which converts the settled value to r
+-- (the kind number says how) or raises a JSException:
+--   ^f  -->  B^n (C IO.>>= (IO.jsawait kind)) ^f
+-- i.e., \ x1 ... xn -> ^f x1 ... xn >>= IO.jsawait kind
+jsAwait :: EType -> Exp -> Exp
+jsAwait t f =
+  case getArrows (dropForallContext t) of
+    (as, EApp (EVar io) r) | io == identIO ->
+      let g = App (App (Lit (LPrim PC)) (litPrim "IO.>>=")) (App (litPrim "IO.jsawait") (Lit (LInt (jsAwaitKind r))))
+      in  App (iterate (App (Lit (LPrim PB))) g !! length as) f
+    _ -> errorMessage (getSLoc t) "foreign import javascript: only an unsafe (synchronous) import can return a type that is not IO"
+
+-- Is a JavaScript import asynchronous?  As in GHC's WebAssembly backend, an import
+-- is asynchronous unless it is unsafe: safe, interruptible, and an import without a
+-- safety annotation (which is safe, as in the Haskell report) are all asynchronous.
+-- A "wrapper" import makes a callback; it runs no JavaScript code of its own.
+jsAsync :: Safety -> String -> Bool
+jsAsync sf s = sf /= Unsafe && s `notElem` ["wrapper", "wrapper sync"]
+
+-- The kind number IO.jsawait gets: the constructor index of JSKind, which
+-- mhs_js_settle in eval.c decodes (0 = JSVal, ..., 7 = ()).
+jsAwaitKind :: EType -> Int
+jsAwaitKind = fromEnum . jsKind
+
+-- Types allowed in 'foreign import javascript' (also used by MicroHs.FFI).
+-- The order is the one mhs_js_settle in eval.c expects.
+data JSKind = KJSVal | KInt | KWord | KBool | KDouble | KFloat | KPtr | KUnit
+  deriving (Eq, Enum)
+
+jsKind :: EType -> JSKind
+jsKind (EApp (EVar ptr) _) | ptr == identPtr = KPtr
+jsKind (EVar i) | Just k <- lookup (unIdent i) jsKinds = k
+jsKind t = errorMessage (getSLoc t) $ "Not a valid JavaScript FFI type: " ++ showEType t
+
+jsKinds :: [(String, JSKind)]
+jsKinds =
+  [ ("Primitives.JSVal",    KJSVal)
+  , ("Data.Bool_Type.Bool", KBool)
+  , ("Primitives.Int",      KInt)
+  , ("Primitives.Word",     KWord)   -- also Char, which is a newtype of Word
+  , ("Primitives.Double",   KDouble)
+  , ("Primitives.Float",    KFloat)
+  , ("()",                  KUnit)
+  ]
+
 ccall :: EType -> Exp -> Exp
 ccall t f =
-  case getArrows t of
+  case getArrows (dropForallContext t) of
     (_, EApp (EVar io) _) | io == identIO ->
       f
     (as, _) ->
       -- pure function, need a performIO.
       --   ^f  -->  \ x1 ... xn -> performIO (^f x1 ... xn)
       let xs = map (\ i -> mkIdent $ '_' : show i) [1..length as]
-          perf = Lit $ LPrim "IO.performIO"
+          perf = litPrim "IO.performIO"
           call = App perf $ apps f (map Var xs)
       in  foldr Lam call xs
 
@@ -191,7 +244,7 @@ letE i e b = eLet i e b          -- do some minor optimizations
 -- Do a single recursive definition 'let i = e in b'
 -- by 'let i = Y (\i.e) in b'
 letRecE :: Ident -> Exp -> Exp -> Exp
-letRecE i e b = letE i (App (Lit (LPrim "Y")) (Lam i e)) b
+letRecE i e b = letE i (App (Lit (LPrim PY)) (Lam i e)) b
 
 -- Do mutual recursion by tupling up all the definitions.
 --  let f = ... g ...
@@ -207,6 +260,9 @@ letRecE i e b = letE i (App (Lit (LPrim "Y")) (Lam i e)) b
 --        g = sel_1_2 v
 --    in  body
 mutualRec :: Ident -> [LDef] -> Exp -> Exp
+mutualRec _ ies _ | length ies > maxFields =
+  errorMessage (getSLoc (fst (head ies))) $
+    "too many mutually recursive local definitions, " ++ show (length ies) ++ ", the maximum is " ++ show maxFields
 mutualRec v ies body =
   let (is, es) = unzip ies
       n = length is
@@ -386,7 +442,7 @@ dsLazy (ps, sub, rhs) =
   in  (ps', sub, \ d -> dsBinds (reverse rbs) $ foldr eSeq (rhs d) (reverse ris))
 
 eSeq :: Exp -> Exp -> Exp
-eSeq e1 e2 = App (App (Lit (LPrim "seq")) e1) e2
+eSeq e1 e2 = App (App (litPrim "seq") e1) e2
 
 -- XXX quadratic.  but only used for short lists
 groupEq :: forall a . (a -> a -> Bool) -> [a] -> [[a]]
@@ -516,7 +572,8 @@ eLet i e b =
         case filter (== i) (freeVars b) of
           []  -> b                -- no occurences, no need to bind
           -- The single use substitution is essential for performance.
-          [_] -> substExp i e b   -- single occurrence, substitute  XXX could be worse if under lambda
+          [_] -> substExp i e b   -- single occurrence, substitute  XXX could be worse if under lambda,
+                                  -- see the note on Z in MicroHs.Abstract
           _   -> App (Lam i b) e  -- just use a beta redex
 
 -- Change from x to y inside e.
@@ -618,9 +675,9 @@ lazier def = def
 -- "wrapper"
 -- When the calling convention is ccall the 'expr' has to be a name,
 -- with capi it can be any C expression.
-parseImpEnt :: SLoc -> CallConv -> String -> String -> ImpEnt
-parseImpEnt _ Cjavascript _ s = ImpJS s
-parseImpEnt loc _cc ui s =
+parseImpEnt :: SLoc -> CallConv -> Safety -> String -> String -> ImpEnt
+parseImpEnt _ Cjavascript sf _ s = ImpJS sf s
+parseImpEnt loc _cc _ ui s =
   case words s of
     ["dynamic"] -> ImpDynamic
     ["wrapper"] -> ImpWrapper
@@ -639,15 +696,15 @@ parseImpEnt loc _cc ui s =
 badForImp :: SLoc -> a
 badForImp loc = errorMessage loc "bad foreign import"
 
-mkForImp :: IdentModule -> Int -> CallConv -> Maybe String -> Ident -> EType -> Lit
-mkForImp _ _ Cjavascript Nothing i _ = badForImp (getSLoc i)
-mkForImp mn no cc ms i ty =
+mkForImp :: IdentModule -> Int -> CallConv -> Safety -> Maybe String -> Ident -> EType -> Lit
+mkForImp _ _ Cjavascript _ Nothing i _ = badForImp (getSLoc i)
+mkForImp mn no cc sf ms i ty =
   let cty = CType ty
       loc = getSLoc i
       ui  = unIdent (unQualIdent i)
       isValidC (c:cs) = isAlpha c && all (\ d -> isAlphaNum d || d == '_') cs
       isValidC _ = False
-      impent = parseImpEnt loc cc ui $ fromMaybe "" ms
+      impent = parseImpEnt loc cc sf ui $ fromMaybe "" ms
       -- The number is only unique within a module, so qualify it with the module name.
       -- It comes first, so the name cannot be a C identifier, which isValidC names are.
       fno = show no ++ "_" ++ map (\ c -> if isAlphaNum c then c else '_') (unIdent mn)
@@ -692,9 +749,9 @@ optCase ae = opt [] ae
         linear var ((k, rhs):kes) dflt = encIf (eqInt k var) rhs (linear var kes dflt)
 
         eqInt :: Int -> Exp -> Exp
-        eqInt i x = app2 (Lit (LPrim "==")) (Lit (LInt i)) x
+        eqInt i x = app2 (litPrim "==") (Lit (LInt i)) x
         gtInt :: Int -> Exp -> Exp
-        gtInt i x = app2 (Lit (LPrim ">")) (Lit (LInt i)) x
+        gtInt i x = app2 (litPrim ">") (Lit (LInt i)) x
 
 -- Switch to binary search with >= binLimit arms
 -- Experimentally, this seems to be the sweet spot.

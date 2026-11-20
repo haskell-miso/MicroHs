@@ -4,7 +4,7 @@
 module MicroHs.TypeCheck(
   typeCheck,
   TModule(..), showTModule,
-  GlobTables, emptyGlobTables, mergeGlobTables,
+  GlobTables, emptyGlobTables, mergeGlobTables, deleteModuleGlobTables,
   impossible, impossibleShow,
   mkClassConstructor,
   mkSuperSel,
@@ -26,6 +26,7 @@ import Data.List
 import Data.Maybe
 import MicroHs.Builtin
 import MicroHs.Deriving
+import MicroHs.EncodeData(maxConstructors, maxFields)
 import MicroHs.Error(MhsError(MhsTypeError))
 import MicroHs.Expr
 import MicroHs.Fixity
@@ -81,6 +82,28 @@ mergeGlobTables g1 g2 =
                gDataTable = M.merge (gDataTable g1) (gDataTable g2),
                gClassTable = M.merge (gClassTable g1) (gClassTable g2),
                gInstInfo = M.mergeWith mergeInstInfo (gInstInfo g1) (gInstInfo g2) }
+
+-- Remove what a module has added to the global tables, e.g., when it is
+-- removed from the compilation cache.  The type synonyms, data types, and
+-- classes are the ones qualified by the module name.  The instances are the
+-- ones whose dictionaries are among the given instance identifiers, i.e.,
+-- the instance bindings of the module.
+deleteModuleGlobTables :: IdentModule -> [Ident] -> GlobTables -> GlobTables
+deleteModuleGlobTables mn insts g =
+  GlobTables { gSynTable = delOwn (gSynTable g),
+               gDataTable = delOwn (gDataTable g),
+               gClassTable = delOwn (gClassTable g),
+               gInstInfo = M.fromList (mapMaybe delInsts (M.toList (gInstInfo g))) }
+  where
+    delOwn :: forall a . M.Map a -> M.Map a
+    delOwn m = foldr M.delete m [ i | i <- M.keys m, qualOf i == mn ]
+    instSet = M.fromList [ (i, ()) | i <- insts ]
+    isOwn (EVar i) = isJust (M.lookup i instSet)
+    isOwn _ = False
+    delInsts (c, InstInfo m l fds) =
+      let m' = M.fromList [ ie | ie@(_, e) <- M.toList m, not (isOwn e) ]
+          l' = [ d | d@(InstDict e _) <- l, not (isOwn e) ]
+      in  if M.null m' && null l' then Nothing else Just (c, InstInfo m' l' fds)
 
 type Symbols = (SymTab, SymTab)
 
@@ -371,7 +394,10 @@ mergeInstInfo (InstInfo m1 l1 fds) (InstInfo m2 l2 _) =
       | otherwise = errorMessage (getSLoc i1) $ "Multiple instances: " ++ showSLoc (getSLoc i2)
     mrg e1 _e2 = e1 -- XXX improve this
     l = unionBy eqInstDict l1 l2
-  in  InstInfo m l fds
+  -- Evaluate the spine of the list.  Otherwise the unions of all the merges
+  -- nest, each with a nubBy over the unevaluated list of the one before,
+  -- and evaluating the list in the end needs a very deep stack.
+  in  length l `seq` InstInfo m l fds
 
 -- Approximate equality for dictionaries.
 -- The important thing is to avoid exact duplicates in the instance table.
@@ -1694,6 +1720,12 @@ addValueType adef = do
       let
         cti = [ (qualIdent mn c, either length length ets + if null ctx then 0 else 1) | Constr _ ctx c _ ets <- cs ]
         tret = tApps (qualIdent mn tycon) (map tVarK vks)
+      -- The runtime encoding of data limits these, see MicroHs.EncodeData.
+      when (length cs > maxConstructors) $
+        tcError (getSLoc tycon) $ "too many constructors, " ++ show (length cs) ++ ", the maximum is " ++ show maxConstructors
+      sequence_ [ tcError (getSLoc c) $ "too many fields, " ++ show n ++ ", the maximum is " ++ show maxFields
+                | (c, n) <- cti, n > maxFields ]
+      let
         addCon (Constr evks ectx c _ ets) = do
           let ts = either id (map snd) ets
               cty = EForall QExpl vks $ EForall QExpl evks $ addConstraints ectx $ foldr (tArrow . snd) tret ts
@@ -3941,7 +3973,7 @@ solveKnownSymbol loc iCls ts = solveInst loc iCls ts  -- look for a dict argumen
 mkConstDict :: SLoc -> Ident -> Expr -> T (Maybe (Expr, [Goal], [Improve]))
 mkConstDict loc iCls e = do
   let res = EApp (EVar $ mkClassConstructor iCls) fcn
-      fcn = EApp (ELit loc (LPrim "K")) e                -- constant function
+      fcn = EApp (ELit loc (LPrim PK)) e                -- constant function
   return $ Just (res, [], [])
 
 type TySubst = [(TRef, EType)]

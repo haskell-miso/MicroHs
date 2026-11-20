@@ -12,6 +12,9 @@
 Hello
 # IOTest        IOTest.ref
 Serdes
+SerdesDescr
+Reflect
+FullLaziness
 StringTest
 LargeGetLine
 ListTest
