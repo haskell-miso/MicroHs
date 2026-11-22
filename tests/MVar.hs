@@ -23,6 +23,9 @@ main = do
 
 test1 :: IO ()
 test1 = do
+  -- Start on a full time slice: with -r the program inherits what is left of the
+  -- compiler's, and a switch inside putStrLn "test1 B" would interleave the output.
+  yield
   putStrLn "test1 A"
   mvar <- newEmptyMVar
   forkIO (fun mvar)
