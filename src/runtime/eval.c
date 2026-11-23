@@ -7927,6 +7927,20 @@ ev_new_ap(NODEPTR f, NODEPTR a, struct node **bpp, struct node **bep, counter_t 
 #define EV_RAISE(e) do { EV_SAVE(); raise_rts(e); } while(0)
 
 /* Evaluate a node, returns when the node is in WHNF. */
+#if SMALL_EVALI
+/* For the JavaScript only targets (-sWASM=0, see mhs.conf.in): V8 does not optimize
+ * a function as big as evali with evalprimop and evalprimret inlined ("Function is
+ * too big to be optimized"), and binaryen inlines a function with a single caller
+ * in spite of NOINLINE.  A call through a volatile pointer cannot be inlined. */
+static struct prim_res (* volatile evalprimop_p)(NODEPTR, enum node_tag, stackptr_t) = evalprimop;
+static struct prim_res (* volatile evalprimret_p)(NODEPTR, enum node_tag) = evalprimret;
+#define EVALPRIMOP evalprimop_p
+#define EVALPRIMRET evalprimret_p
+#else
+#define EVALPRIMOP evalprimop
+#define EVALPRIMRET evalprimret
+#endif
+
 NODEPTR
 evali(NODEPTR an)
 {
@@ -8295,7 +8309,7 @@ evali(NODEPTR an)
     {
       /* Every other primitive */
       EV_SAVE();
-      struct prim_res pr = evalprimop(n, tag, stk);
+      struct prim_res pr = EVALPRIMOP(n, tag, stk);
       EV_LOAD();
       n = pr.n;
       if (pr.next == PRIM_TOP)
@@ -8450,7 +8464,7 @@ evali(NODEPTR an)
     case T_BINBS1:
       {
         EV_SAVE();
-        struct prim_res pr = evalprimret(n, tag);
+        struct prim_res pr = EVALPRIMRET(n, tag);
         EV_LOAD();
         n = pr.n;
         if (pr.next == PRIM_TOP)
