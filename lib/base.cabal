@@ -184,6 +184,7 @@ library base
         Mhs.UArr
         Mhs.Print
         Mhs.Reflect
+        Mhs.StaticPtr
         Numeric
         Numeric.FormatFloat
         Numeric.Natural

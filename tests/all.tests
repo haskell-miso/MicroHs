@@ -133,3 +133,5 @@ CreateDir
 IOEFileName
 DerivingBuiltin  - - -
 -                itest.ref   -   itest.in   --stdin -q
+StaticPtr
+StaticPtrPoly
