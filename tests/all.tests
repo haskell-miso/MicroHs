@@ -12,6 +12,9 @@
 Hello
 # IOTest        IOTest.ref
 Serdes
+SerdesDescr
+Reflect
+FullLaziness
 StringTest
 LargeGetLine
 ListTest
@@ -27,6 +30,7 @@ RecordBind
 LitMatch
 Word
 Integer
+FromIntegral
 Enum
 MutRec
 LocalPoly

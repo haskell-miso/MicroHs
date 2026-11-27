@@ -80,9 +80,12 @@
 #define WANT_ERRNO 1
 
 /*
- * overflow detection in arithmetic
+ * Overflow detection in Int and Int64 arithmetic.
+ * It is off, so they wrap around, as in GHC.  Data.Hashable relies on that.
  */
-#define WANT_OVERFLOW 1
+#if !defined(WANT_OVERFLOW)
+#define WANT_OVERFLOW 0
+#endif
 
 /*
  * Enable non-blocking IO polling.
@@ -102,12 +105,15 @@
 #endif
 
 /*
- * Use imath for bignums
+ * Use imath for bignums, unless GMP is used.
+ * With -DWANT_IMATH=0 (and no GMP) Integer is implemented in Haskell.
  */
+#if !defined(WANT_IMATH)
 #if WANT_GMP
 #define WANT_IMATH 0
 #else
 #define WANT_IMATH 1
+#endif
 #endif
 
 /*

@@ -37,7 +37,7 @@ import System.Directory
 import System.IO
 import System.IO.Serialize
 import System.IO.TimeMilli
-import System.IO.Transducers(addLZ77, addBase64)
+import System.IO.Transducers(addLZMA, addBase64)
 import Text.PrettyPrint.HughesPJLiteClass(prettyShow)
 
 main :: IO ()
@@ -360,7 +360,7 @@ mainCompile flags mn = do
   let
     mainName = qualIdent rmn (mkIdent "main")
     cmdl = (allDefs, if noLink flags then Lit (LInt 0) else Var mainName)
-    (forExps, outCMdl@(outDefs, _xxx)) = renumberCMdl cmdl
+    (forExps, outCMdl@(outDefs, _xxx), labelNames) = renumberCMdlNames cmdl
     outData = toStringCMdl outCMdl
     numOutDefs = length outData
     numDefs = length allDefs
@@ -406,14 +406,17 @@ mainCompile flags mn = do
     if outFile `hasTheExtension` ".comb" || outFile `hasTheExtension` ".combffi" then do
       h <- openBinaryFile outFile WriteMode
       h' <- if base64 flags then do addBase64 h else return h
-      h'' <- if compress flags then do hPutChar h' 'z'; addLZ77 h' else return h'
+      h'' <- if compress flags then do hPutChar h' 'z'; addLZMA h' else return h'
       hPutStr h'' outData
       when (outFile `hasTheExtension` ".combffi") $ do
         -- add FFI info
-        hPutStrLn h'' "\n#####"
+        hPutStrLn h'' "\n#####FFI"
         let putFFI (_, Lit (LForImp _ i n t)) = hPutStrLn h'' $ n ++ " = " ++ show i ++ " :: " ++ prettyShow t
             putFFI _ = return ()
         mapM_ putFFI outDefs
+        -- add the names of the definitions, after their labels
+        hPutStrLn h'' "#####Names"
+        mapM_ (\ (l, i) -> hPutStrLn h'' $ l ++ " " ++ showIdent i) labelNames
       hClose h''
      else if outFile `hasTheExtension` ".c" then
       writeFile outFile cCode

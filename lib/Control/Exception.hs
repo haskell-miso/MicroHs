@@ -41,6 +41,7 @@ module Control.Exception(
   --
   BlockedIndefinitelyOnMVar(..), blockedIndefinitelyOnMVar,
   BlockedIndefinitelyOnSTM(..), blockedIndefinitelyOnSTM,
+  NonTermination(..), nonTermination,
   --
   ErrorCall(..),
   --
@@ -56,7 +57,7 @@ import System.IO.Unsafe
 
 -- This is the function called by the runtime.
 -- It compiles to
---    (U (U (K2 A)))
+--    ((C D_1) (U (K2 A)))
 displaySomeException :: SomeException -> String
 displaySomeException = displayException
 
@@ -154,6 +155,9 @@ blockedIndefinitelyOnMVar = toException BlockedIndefinitelyOnMVar
 blockedIndefinitelyOnSTM :: SomeException -- for the RTS
 blockedIndefinitelyOnSTM = toException BlockedIndefinitelyOnSTM
 
+nonTermination :: SomeException
+nonTermination = toException NonTermination
+
 -------------------
 
 -- Assertions are ignored.
@@ -172,4 +176,3 @@ instance Exception AssertionFailed
 
 instance Show AssertionFailed where
   showsPrec _ (AssertionFailed err) = showString err
-    

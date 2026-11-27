@@ -43,6 +43,8 @@ GHCFLAGS= $(GHCEXTS) $(GHCINCS) $(GHCWARNS) $(GHCOPTS) $(GHCTOOL) $(GHCPKGS) $(G
 HUGS= runhugs
 FFIHUGS= ffihugs
 HUGSINCS= '+Phugs:mhs:src:{Hugs}/packages/*:hugs/obj' -98 +o +w
+#
+TIME=time
 
 #
 NODE=node
@@ -221,7 +223,7 @@ runtestgsan: bin/mhsevalsane bin/gmhs
 
 # Run test examples going via JavaScript
 runtestemscripten: bin/mhseval bin/mhs bin/cpphs bin/tester
-	cd tests; $(MAKE) MHS=../bin/mhs cache; MHSDIR=.. $(MAKE) MHSTARGET="-temscripten" MHS="../bin/mhs -CR -oout.js" EVAL="$(NODE) $(NODEFLAGS) out.js" info test errtest testpipenonblockioem testjsflag testjsbits
+	cd tests; $(MAKE) MHS=../bin/mhs cache; MHSDIR=.. $(MAKE) MHSTARGET="-temscripten" MHS="../bin/mhs -CR -oout.js" EVAL="$(NODE) $(NODEFLAGS) out.js" info test errtest testpipenonblockioem testjsflag testjsbits testforimpjs testjsval testbrowserrts testjscallback testjsdeadlock testjsexportblocked testjsexittimer testjstrap
 
 runtestinstemscripten:
 	cd tests; $(MAKE) MHSTARGET="-temscripten" MHS="mhs.js -oout.js" EVAL="$(NODE) $(NODEFLAGS) out.js" test
@@ -240,29 +242,29 @@ bin/umhs: bin/mhs
 timecompile: bin/mhs
 	@date
 	@git rev-parse HEAD
-	time bin/mhs +RTS -v -RTS $(MHSINC) $(MAINMODULE)
+	$(TIME) bin/mhs +RTS -v -RTS $(MHSINC) $(MAINMODULE)
 
 #
 timecachecompile: bin/mhs
 	@-rm -f .mhscache
-	time bin/mhs +RTS -v -RTS -CW AllOfLib
-	time bin/mhs +RTS -v -RTS -CR -s $(MHSINC) $(MAINMODULE)
+	$(TIME) bin/mhs +RTS -v -RTS -CW AllOfLib
+	$(TIME) bin/mhs +RTS -v -RTS -CR -s $(MHSINC) $(MAINMODULE)
 
 #
 timemhscompile:
 	@date
 	@git rev-parse HEAD
-	time mhs +RTS -v -RTS -z -imhs -isrc $(MAINMODULE)
+	$(TIME) mhs +RTS -v -RTS -z -imhs -isrc $(MAINMODULE)
 
 timegmhscompile:
 	@date
 	@git rev-parse HEAD
-	time bin/gmhs -imhs -isrc $(MAINMODULE)
+	$(TIME) bin/gmhs -imhs -isrc $(MAINMODULE)
 
 timeghccompile:
 	@date
 	@git rev-parse HEAD
-	time $(GHC) -fforce-recomp $(GHCFLAGS) -O0 $(MAINMODULE) -o bin/gmhs
+	$(TIME) $(GHC) -fforce-recomp $(GHCFLAGS) -O0 $(MAINMODULE) -o bin/gmhs
 
 #
 cachelib:
@@ -325,8 +327,8 @@ nfibtest: bin/mhs bin/mhseval
 
 ######
 
-VERSION=0.16.14.0
-HVERSION=0,16,14,0
+VERSION=0.17.3.0
+HVERSION=0,17,3,0
 MCABAL=$(HOME)/.mcabal
 MCABALMHS=$(MCABAL)/mhs-$(VERSION)
 MDATA=$(MCABALMHS)/packages/mhs-$(VERSION)/data
